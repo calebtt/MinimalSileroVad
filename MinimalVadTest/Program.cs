@@ -87,49 +87,13 @@ internal static class Program
         Log.Information("*** Sentence Completed at {Time:F2}s — Duration {Dur:F2}s ({Bytes} bytes) ***",
             audioTimeSec, durationSeconds, sentence.Length);
 
-        await _streamingSttClient?.ProcessAudioChunkAsync(sentence);
-        var transcript = await _streamingSttClient?.WaitForCompleteTranscriptionAsync();
-        Log.Information("Transcription: {Text}", transcript ?? "");
+        var _ = Task.Run(async () =>
+        {
+            await _streamingSttClient?.ProcessAudioChunkAsync(sentence);
+            var transcript = await _streamingSttClient?.WaitForCompleteTranscriptionAsync();
+            Log.Information("Transcription: {Text}", transcript ?? "");
+        });
     }
-
-    //public static float[] AdaptiveAmplifyAndOverlap(float[] input)
-    //{
-    //    // Compute RMS and adaptive gain
-    //    float rms = MathF.Sqrt(input.Select(x => x * x).Average());
-    //    float targetRms = 0.1f; // aim for ~-20 dBFS average
-    //    float gain = Math.Clamp(targetRms / (rms + 1e-6f), 1f, 15f);
-
-    //    float[] amplified = ArrayPool<float>.Shared.Rent(ChunkSamples);
-    //    for (int i = 0; i < ChunkSamples; i++)
-    //        amplified[i] = Math.Clamp(input[i] * gain, -1f, 1f);
-
-    //    // Overlap-add logic
-    //    var output = new float[ChunkSamples];
-    //    int endPos = (BufPos + ChunkSamples) % OverlapBuf.Length;
-
-    //    if (endPos > BufPos)
-    //    {
-    //        Array.Copy(amplified, 0, OverlapBuf, BufPos, ChunkSamples);
-    //    }
-    //    else
-    //    {
-    //        int toEnd = OverlapBuf.Length - BufPos;
-    //        Array.Copy(amplified, 0, OverlapBuf, BufPos, toEnd);
-    //        Array.Copy(amplified, toEnd, OverlapBuf, 0, ChunkSamples - toEnd);
-    //    }
-
-    //    int prevEnd = (BufPos + ChunkSamples - OverlapSamples) % OverlapBuf.Length;
-
-    //    for (int i = 0; i < OverlapSamples; i++)
-    //        output[i] = OverlapBuf[(prevEnd + i) % OverlapBuf.Length];
-
-    //    Array.Copy(amplified, 0, output, OverlapSamples, ChunkSamples - OverlapSamples);
-    //    BufPos = (BufPos + (ChunkSamples - OverlapSamples)) % OverlapBuf.Length;
-
-    //    ArrayPool<float>.Shared.Return(amplified);
-    //    return output;
-    //}
-
 
     private static void ProcessChunk(VadSpeechSegmenterSileroV5 segmenter, float[] chunk, CancellationToken ct, int chunkCounter)
     {
