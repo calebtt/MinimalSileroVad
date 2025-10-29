@@ -1,6 +1,5 @@
 ﻿using NAudio.Wave;
 using Serilog;
-using SipBot;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using VadSpeechSegmenterSileroV5 = MinimalSileroVAD.Core.VadSpeechSegmenterSileroV5;

@@ -2,7 +2,7 @@
 
 namespace MinimalSileroVAD.Core;
 
-public sealed class VadSpeechSegmenterSileroV5 : IDisposable
+public class VadSpeechSegmenterSileroV5 : IDisposable
 {
     private readonly SileroModel _model;
     private readonly float _threshold = 0.3f;
