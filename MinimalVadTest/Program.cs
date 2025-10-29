@@ -3,7 +3,7 @@ using Serilog;
 using SipBot;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
-using VadSpeechSegmenter = MinimalSileroVAD.Core.VadSpeechSegmenter;
+using VadSpeechSegmenterSileroV5 = MinimalSileroVAD.Core.VadSpeechSegmenterSileroV5;
 
 namespace MinimalVadTest;
 
@@ -50,7 +50,7 @@ internal static class Program
             Log.Information("Starting MinimalVadTest");
             Log.Information("EnableEcho: {EnableEcho}", EnableEcho);
 
-            using var segmenter = new VadSpeechSegmenter("models/silero_vad.onnx", msPerFrame: 32);
+            using var segmenter = new VadSpeechSegmenterSileroV5("models/silero_vad.onnx", msPerFrame: 32);
             segmenter.SentenceBegin += OnSentenceBegin;
             segmenter.SentenceCompleted += OnSentenceCompleted;
 
@@ -132,7 +132,7 @@ internal static class Program
     //}
 
 
-    private static void ProcessChunk(VadSpeechSegmenter segmenter, float[] chunk, CancellationToken ct, int chunkCounter)
+    private static void ProcessChunk(VadSpeechSegmenterSileroV5 segmenter, float[] chunk, CancellationToken ct, int chunkCounter)
     {
         float avgAmp = chunk.Average(Math.Abs);
         if (chunkCounter % 10 == 0)
