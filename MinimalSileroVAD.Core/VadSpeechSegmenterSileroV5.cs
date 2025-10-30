@@ -6,7 +6,10 @@ using Serilog;
 
 namespace MinimalSileroVAD.Core;
 
-public class VadSpeechSegmenterSileroV5 : IDisposable
+/// <summary>
+/// Implementation of VAD-based speech segmenter using Silero VAD v5 model.
+/// </summary>
+public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
 {
     private readonly SileroModel _model;
     private readonly float _threshold = 0.3f;
@@ -32,7 +35,7 @@ public class VadSpeechSegmenterSileroV5 : IDisposable
 
     public VadSpeechSegmenterSileroV5(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 20, int maxSpeechLengthMs = 7_000)
     {
-        // Load embedded model stream robustly
+        // Load embedded model stream
         const string resourceName = "MinimalSileroVAD.Core.models.silero_vad.onnx"; // Matches namespace + path
         using var modelStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
             ?? throw new FileNotFoundException($"Embedded model resource '{resourceName}' not found. Ensure it's added as an EmbeddedResource in the .csproj.");
@@ -179,7 +182,7 @@ public class VadSpeechSegmenterSileroV5 : IDisposable
     }
 }
 
-public class VadStartFramesBuffer
+internal class VadStartFramesBuffer
 {
     private readonly int _maxFrames;
     private readonly List<byte[]> _frames = new();
@@ -248,7 +251,7 @@ public class VadStartFramesBuffer
     }
 }
 
-public class VadFrameCounter
+internal class VadFrameCounter
 {
     private readonly int _framesUntilTrigger;
     private int _frameCount;
