@@ -20,7 +20,7 @@ This project is ideal for building speech detection components in automated syst
 - **Model Compatibility**: Uses the pre-trained Silero VAD model via ONNX.
 - **Customizable Thresholds**: Adjust sensitivity for speech detection.
 - **Logging Support**: Includes basic logging for debugging and monitoring.
-- **Cross-Platform**: Runs on .NET environments with GPU/CPU support.
+- **Cross-Platform**: Runs on Windows & Linux .NET environments with GPU/CPU support.
 
 ## Prerequisites
 
@@ -42,8 +42,8 @@ This project is ideal for building speech detection components in automated syst
     dotnet restore
 
 3. Configure settings:
-   - Download the Silero VAD ONNX model if not included (e.g., from the official Silero repository).
-   - Place the model file (e.g., silero_vad.onnx) in the appropriate directory or update paths in code.
+   - The Silero VAD V5 ONNX file is now included in the package as a resource and loaded at runtime automatically.
+   - No configuration needed there.
 
 4. Build the project:
 
