@@ -76,7 +76,7 @@ Adhere to modern best practices: Use meaningful commit messages, include unit te
 
 ## License
 
-No license has been set for this project yet. Please contact the repository owner for usage permissions.
+MIT
 
 ## Acknowledgments
 
