@@ -3,7 +3,7 @@
 /// <summary>
 /// Interface for a VAD-based speech segmenter.
 /// </summary>
-public interface IVadSpeechSegmenter
+public interface IVadSpeechSegmenter : IDisposable
 {
     /// <summary>
     /// Fired when VAD detects the beginning of a new sentence.
