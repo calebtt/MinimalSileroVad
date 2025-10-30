@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="models\**" />
+    <EmbeddedResource Remove="models\**" />
+    <None Remove="models\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Serilog" Version="4.3.0" />
 	  <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.0" />
@@ -21,22 +27,6 @@
 	
   <ItemGroup>
     <ProjectReference Include="..\MinimalSileroVAD.Core\MinimalSileroVAD.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Update="models\ggml-base.en-q5_1.bin">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="models\kokoro.onnx">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="models\silero_vad.onnx">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="models\" />
   </ItemGroup>
 
 </Project>

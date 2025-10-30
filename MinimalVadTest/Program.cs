@@ -49,7 +49,7 @@ internal static class Program
             Log.Information("Starting MinimalVadTest");
             Log.Information("EnableEcho: {EnableEcho}", EnableEcho);
 
-            using var segmenter = new VadSpeechSegmenterSileroV5("models/silero_vad.onnx", msPerFrame: 32);
+            using var segmenter = new VadSpeechSegmenterSileroV5(msPerFrame: 32);
             segmenter.SentenceBegin += OnSentenceBegin;
             segmenter.SentenceCompleted += OnSentenceCompleted;
 

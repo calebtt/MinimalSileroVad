@@ -1,23 +1,28 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <PackageId>MinimalSileroVAD</PackageId>
-    <Version>1.0.0</Version>
-    <Authors>Caleb Taylor</Authors>
-    <Description>Cross-platform Voice Activity Detection using Silero ONNX Runtime. 
-    Provides simple APIs for speech segmentation without WebRTC dependencies.</Description>
-    <RepositoryUrl>https://github.com/calebtt/MinimalSileroVAD</RepositoryUrl>
-    <PackageTags>vad;onnx;silero;voice;audio;cross-platform</PackageTags>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+		<PackageId>MinimalSileroVAD</PackageId>
+		<Version>1.0.0</Version>
+		<Authors>Caleb Taylor</Authors>
+		<Description>
+			Cross-platform Voice Activity Detection using Silero ONNX Runtime.
+			Provides simple APIs for speech segmentation without WebRTC dependencies.
+		</Description>
+		<RepositoryUrl>https://github.com/calebtt/MinimalSileroVAD</RepositoryUrl>
+		<PackageTags>vad;onnx;silero;voice;audio;cross-platform</PackageTags>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.23.1" />
-    <PackageReference Include="Serilog" Version="4.3.0" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.23.1" />
+		<PackageReference Include="Serilog" Version="4.3.0" />
+
+		<!-- Embed the Silero model as a resource (adjust path if needed) -->
+		<EmbeddedResource Include="models\silero_vad.onnx" />
+	</ItemGroup>
 
 </Project>

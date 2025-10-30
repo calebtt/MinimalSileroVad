@@ -1,4 +1,8 @@
-﻿using Serilog;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using Serilog;
 
 namespace MinimalSileroVAD.Core;
 
@@ -9,7 +13,7 @@ public class VadSpeechSegmenterSileroV5 : IDisposable
 
     private readonly int _msPerFrame;
     private readonly int _maxSpeechLengthMs;
-    
+
     // Max segment length time point
     private DateTime _utteranceStartTime;
 
@@ -26,9 +30,14 @@ public class VadSpeechSegmenterSileroV5 : IDisposable
 
     public bool IsSentenceInProgress => _isUtteranceInProgress;
 
-    public VadSpeechSegmenterSileroV5(string sileroModelPath, int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 20, int maxSpeechLengthMs = 7_000)
+    public VadSpeechSegmenterSileroV5(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 20, int maxSpeechLengthMs = 7_000)
     {
-        _model = new(sileroModelPath, _threshold);
+        // Load embedded model stream robustly
+        const string resourceName = "MinimalSileroVAD.Core.models.silero_vad.onnx"; // Matches namespace + path
+        using var modelStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new FileNotFoundException($"Embedded model resource '{resourceName}' not found. Ensure it's added as an EmbeddedResource in the .csproj.");
+
+        _model = new SileroModel(modelStream, _threshold);
         Log.Information("Silero VAD initialized successfully with threshold {Threshold}.", _threshold);
 
         _msPerFrame = msPerFrame;
@@ -163,7 +172,7 @@ public class VadSpeechSegmenterSileroV5 : IDisposable
     {
         if (!_isDisposed)
         {
-            //_vad.Dispose();
+            _model?.Dispose();
             _isDisposed = true;
             Log.Information("VadSpeechSegmenter disposed.");
         }

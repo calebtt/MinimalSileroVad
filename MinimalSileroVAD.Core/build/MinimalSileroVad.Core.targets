@@ -1,0 +1,8 @@
+<Project>
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)..\content\models\silero_vad.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>models\silero_vad.onnx</TargetPath>
+    </Content>
+  </ItemGroup>
+</Project>

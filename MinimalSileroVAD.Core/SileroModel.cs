@@ -1,5 +1,6 @@
 ﻿using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
+using Serilog;
 
 namespace MinimalSileroVAD.Core;
 
@@ -10,17 +11,33 @@ public class SileroModel : IDisposable
     private readonly float[] _hState;
     private readonly float[] _cState;
     private const int Layers = 2, Hidden = 64, Batch = 1;
+    private bool _isDisposed;
 
-    public SileroModel(string modelPath, float threshold)
+    public SileroModel(Stream modelStream, float threshold)
     {
-        if (!File.Exists(modelPath))
-            throw new FileNotFoundException($"Model not found: {modelPath}");
+        ArgumentNullException.ThrowIfNull(modelStream, nameof(modelStream));
+        if (!modelStream.CanRead)
+            throw new ArgumentException("Model stream must be readable.", nameof(modelStream));
 
-        var opts = new SessionOptions
+        try
         {
-            GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED
-        };
-        _session = new(modelPath, opts);
+            var opts = new SessionOptions
+            {
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+            };
+            // Use MemoryStream to ensure we can reset/seek if needed (ONNX requires seekable stream)
+            using var memoryStream = new MemoryStream();
+            modelStream.CopyTo(memoryStream);
+            memoryStream.Position = 0;
+            _session = new InferenceSession(memoryStream.ToArray(), opts); // Load from byte[] for robustness
+            Log.Information("Silero model loaded successfully from stream.");
+        }
+        catch (OnnxRuntimeException ex)
+        {
+            Log.Error(ex, "Failed to load ONNX model from stream.");
+            throw;
+        }
+
         _threshold = threshold;
         _hState = new float[Layers * Batch * Hidden];
         _cState = new float[Layers * Batch * Hidden];
@@ -52,5 +69,13 @@ public class SileroModel : IDisposable
         return prob > _threshold;
     }
 
-    public void Dispose() => _session.Dispose();
+    public void Dispose()
+    {
+        if (!_isDisposed)
+        {
+            _session?.Dispose();
+            _isDisposed = true;
+            Log.Information("SileroModel disposed.");
+        }
+    }
 }
