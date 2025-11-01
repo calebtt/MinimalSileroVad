@@ -12,6 +12,9 @@ public class SileroModel : IDisposable
     private readonly float[] _cState;
     private const int Layers = 2, Hidden = 64, Batch = 1;
     private bool _isDisposed;
+    private float _lastProbability;
+
+    public float GetLastProbability() => _lastProbability; // Public: For logging/diagnostics
 
     public SileroModel(Stream modelStream, float threshold)
     {
@@ -23,14 +26,16 @@ public class SileroModel : IDisposable
         {
             var opts = new SessionOptions
             {
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
             };
-            // Use MemoryStream to ensure we can reset/seek if needed (ONNX requires seekable stream)
+            opts.AppendExecutionProvider_CUDA();
+
+            // Load model
             using var memoryStream = new MemoryStream();
             modelStream.CopyTo(memoryStream);
             memoryStream.Position = 0;
-            _session = new InferenceSession(memoryStream.ToArray(), opts); // Load from byte[] for robustness
-            Log.Information("Silero model loaded successfully from stream.");
+            _session = new InferenceSession(memoryStream.ToArray(), opts);
+            Log.Information("Silero model loaded successfully with providers.");
         }
         catch (OnnxRuntimeException ex)
         {
@@ -65,6 +70,7 @@ public class SileroModel : IDisposable
         float prob = result.First(r => r.Name == "output").AsTensor<float>()[0];
         result.First(r => r.Name == "hn").AsTensor<float>().ToArray().CopyTo(_hState, 0);
         result.First(r => r.Name == "cn").AsTensor<float>().ToArray().CopyTo(_cState, 0);
+        _lastProbability = prob;
 
         return prob > _threshold;
     }

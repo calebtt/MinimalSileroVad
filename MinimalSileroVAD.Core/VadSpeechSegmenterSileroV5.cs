@@ -12,7 +12,7 @@ namespace MinimalSileroVAD.Core;
 public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
 {
     private readonly SileroModel _model;
-    private readonly float _threshold = 0.3f;
+    private readonly float _threshold;
 
     private readonly int _msPerFrame;
     private readonly int _maxSpeechLengthMs;
@@ -33,8 +33,12 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
 
     public bool IsSentenceInProgress => _isUtteranceInProgress;
 
-    public VadSpeechSegmenterSileroV5(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 20, int maxSpeechLengthMs = 7_000)
+    public VadSpeechSegmenterSileroV5(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 20, int maxSpeechLengthMs = 7_000, float threshold = 0.3f)
     {
+        _threshold = threshold;
+        _msPerFrame = msPerFrame;
+        _maxSpeechLengthMs = maxSpeechLengthMs;
+
         // Load embedded model stream
         const string resourceName = "MinimalSileroVAD.Core.models.silero_vad.onnx"; // Matches namespace + path
         using var modelStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
@@ -43,8 +47,6 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
         _model = new SileroModel(modelStream, _threshold);
         Log.Information("Silero VAD initialized successfully with threshold {Threshold}.", _threshold);
 
-        _msPerFrame = msPerFrame;
-        _maxSpeechLengthMs = maxSpeechLengthMs;
         var speechFramesToStart = Math.Max(1, (int)Math.Ceiling((double)beginOfUtteranceMs / _msPerFrame));
         int preSpeechFrames = (int)Math.Ceiling((double)preSpeechMs / _msPerFrame);
         var speechFramesToEnd = Math.Max(1, (int)Math.Ceiling((double)endOfUtteranceMs / _msPerFrame));
@@ -136,6 +138,7 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
                 }
             }
         }
+
     }
 
     private static byte[] ValidateSamples(byte[] monoPcm, int frameLengthMs, int ExpectedSampleRate, int BytesPerSample)
@@ -254,25 +257,46 @@ internal class VadStartFramesBuffer
 internal class VadFrameCounter
 {
     private readonly int _framesUntilTrigger;
-    private int _frameCount;
+    private readonly Queue<bool> _recentTriggers; // Sliding window: Recent frames only
+    private int _consecutiveTriggers; // Running consecutive count (resets on false)
 
     public VadFrameCounter(int framesUntilStart)
     {
         _framesUntilTrigger = framesUntilStart;
+        _recentTriggers = new Queue<bool>(); // Fixed-size via Enqueue/Dequeue
+        _consecutiveTriggers = 0;
     }
 
     public void CountTriggerFrame()
     {
-        _frameCount++;
+        _recentTriggers.Enqueue(true);
+        _consecutiveTriggers++;
+
+        // Auto-prune window to ~_framesUntilTrigger + buffer (prevents memory growth)
+        while (_recentTriggers.Count > _framesUntilTrigger + 5)
+        {
+            _recentTriggers.Dequeue();
+        }
     }
 
     public void CountNonTriggerFrame()
     {
-        _frameCount = 0;
+        _recentTriggers.Enqueue(false);
+        _consecutiveTriggers = 0; // Reset consecutive on non-trigger
+
+        while (_recentTriggers.Count > _framesUntilTrigger + 5)
+        {
+            _recentTriggers.Dequeue();
+        }
+
+        Log.Debug("VAD Counter: Non-trigger. Reset consecutive to 0; window: {WindowSize}", _recentTriggers.Count);
     }
 
     public bool ShouldActivate()
     {
-        return _frameCount >= _framesUntilTrigger;
+        // Activate if recent N frames are all true (sliding AND)
+        if (_recentTriggers.Count < _framesUntilTrigger) return false;
+
+        return _consecutiveTriggers >= _framesUntilTrigger; // Or full window check: !_recentTriggers.Any(f => !f)
     }
 }
