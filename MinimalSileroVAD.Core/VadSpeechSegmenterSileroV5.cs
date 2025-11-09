@@ -204,14 +204,10 @@ internal class VadStartFramesBuffer
         _frames.Add(frame.ToArray());
     }
 
-    public List<byte[]> GetFrames()
-    {
-        return _frames;
-    }
+    public List<byte[]> GetFrames() => _frames;
 
     /// <summary>
     /// Concatenates the latest frames to form a buffer of at least the requested size, padding with zeros if needed.
-    /// Uses spans for efficient concatenation without extra allocations beyond the output array.
     /// </summary>
     public byte[] GetLatestBytes(int minBytes)
     {
