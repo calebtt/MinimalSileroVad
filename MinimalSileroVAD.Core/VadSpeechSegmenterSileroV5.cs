@@ -288,8 +288,6 @@ internal class VadFrameCounter
         {
             _recentTriggers.Dequeue();
         }
-
-        Log.Debug("VAD Counter: Non-trigger. Reset consecutive to 0; window: {WindowSize}", _recentTriggers.Count);
     }
 
     public bool ShouldActivate()
