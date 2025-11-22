@@ -10,13 +10,15 @@ namespace MinimalSileroVAD.Core;
 /// </summary>
 public class SileroModel : IDisposable
 {
-    private readonly InferenceSession _session;
+    private readonly InferenceSession? _session;
     private readonly float _threshold;
     private readonly float[] _hState;
     private readonly float[] _cState;
     private const int Layers = 2, Hidden = 64, Batch = 1;
     private bool _isDisposed;
     private float _lastProbability;
+    // Lock obj to prevent an onnx runtime cuda exception on dispose.
+    private object _cudaBandaidLock = new();
 
     /// <summary>
     /// Gets the probability from the last VAD inference. Useful for logging or diagnostics.
@@ -73,29 +75,36 @@ public class SileroModel : IDisposable
     /// <exception cref="ArgumentException">Thrown if <paramref name="pcm16"/> has an odd length.</exception>
     public bool IsSpeech(ReadOnlySpan<byte> pcm16, int sampleRate)
     {
-        if (pcm16.Length % 2 != 0)
-            throw new ArgumentException("PCM16 data must have even length.");
-
-        int frameLen = pcm16.Length / 2;
-        Span<float> audio = stackalloc float[frameLen];
-        for (int i = 0; i < frameLen; i++)
-            audio[i] = BitConverter.ToInt16(pcm16[(i * 2)..]) / 32768f;
-
-        var inputs = new[]
+        lock (_cudaBandaidLock)
         {
+
+
+            if (_isDisposed || _session == null)
+                return false; // Disposed object or null inference session.
+            if (pcm16.Length % 2 != 0)
+                throw new ArgumentException("PCM16 data must have even length.");
+
+            int frameLen = pcm16.Length / 2;
+            Span<float> audio = stackalloc float[frameLen];
+            for (int i = 0; i < frameLen; i++)
+                audio[i] = BitConverter.ToInt16(pcm16[(i * 2)..]) / 32768f;
+
+            var inputs = new[]
+            {
             NamedOnnxValue.CreateFromTensor("input", new DenseTensor<float>(audio.ToArray(), new[] {1, frameLen})),
             NamedOnnxValue.CreateFromTensor("sr", new DenseTensor<long>(new[] { (long)sampleRate }, new[] {1})),
             NamedOnnxValue.CreateFromTensor("h", new DenseTensor<float>(_hState, new[] {Layers, 1, Hidden})),
             NamedOnnxValue.CreateFromTensor("c", new DenseTensor<float>(_cState, new[] {Layers, 1, Hidden}))
         };
 
-        using var result = _session.Run(inputs);
-        float prob = result.First(r => r.Name == "output").AsTensor<float>()[0];
-        result.First(r => r.Name == "hn").AsTensor<float>().ToArray().CopyTo(_hState, 0);
-        result.First(r => r.Name == "cn").AsTensor<float>().ToArray().CopyTo(_cState, 0);
-        _lastProbability = prob;
+            using var result = _session.Run(inputs);
+            float prob = result.First(r => r.Name == "output").AsTensor<float>()[0];
+            result.First(r => r.Name == "hn").AsTensor<float>().ToArray().CopyTo(_hState, 0);
+            result.First(r => r.Name == "cn").AsTensor<float>().ToArray().CopyTo(_cState, 0);
+            _lastProbability = prob;
 
-        return prob > _threshold;
+            return prob > _threshold;
+        }
     }
 
     /// <summary>
@@ -103,11 +112,14 @@ public class SileroModel : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (!_isDisposed)
+        lock (_cudaBandaidLock)
         {
-            _session?.Dispose();
-            _isDisposed = true;
-            Log.Information("SileroModel disposed.");
+            if (!_isDisposed)
+            {
+                _session?.Dispose();
+                _isDisposed = true;
+                Log.Information("SileroModel disposed.");
+            }
         }
     }
 }
