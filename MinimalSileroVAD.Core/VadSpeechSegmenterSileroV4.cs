@@ -28,11 +28,22 @@ public class VadSpeechSegmenterSileroV4 : IVadSpeechSegmenter, IDisposable
     private bool _justStartedUtterance = false;
     private bool _isDisposed;
 
+    /// <inheritdoc />
     public event EventHandler? SentenceBegin;
+
+    /// <inheritdoc />
     public event EventHandler<MemoryStream>? SentenceCompleted;
 
+    /// <summary>Gets a value indicating whether an utterance is currently being captured.</summary>
     public bool IsSentenceInProgress => _isUtteranceInProgress;
 
+    /// <summary>Initializes a new segmenter over the embedded Silero V4 model.</summary>
+    /// <param name="endOfUtteranceMs">Trailing silence, in ms, that marks the end of an utterance.</param>
+    /// <param name="beginOfUtteranceMs">Sustained speech, in ms, required to start an utterance.</param>
+    /// <param name="preSpeechMs">Amount of audio, in ms, kept before the detected start and prepended to the utterance.</param>
+    /// <param name="msPerFrame">Duration, in ms, of each frame passed to <see cref="PushFrame"/>; used to size the rolling buffers.</param>
+    /// <param name="maxSpeechLengthMs">Maximum utterance length, in ms, after which the sentence is force-completed.</param>
+    /// <param name="threshold">Speech probability threshold (0..1) above which a frame counts as speech.</param>
     public VadSpeechSegmenterSileroV4(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 32, int maxSpeechLengthMs = 7_000, float threshold = 0.3f)
     {
         _threshold = threshold;
@@ -174,6 +185,7 @@ public class VadSpeechSegmenterSileroV4 : IVadSpeechSegmenter, IDisposable
         _buf.SetLength(0); // Clear buffer for next utterance
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (!_isDisposed)
