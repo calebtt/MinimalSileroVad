@@ -219,6 +219,9 @@ internal class VadStartFramesBuffer
 
     public List<byte[]> GetFrames() => _frames;
 
+    /// <summary>Drops all buffered frames.</summary>
+    public void Clear() => _frames.Clear();
+
     /// <summary>
     /// Returns exactly <paramref name="exactBytes"/> from the most recent audio, left-padded with silence if needed.
     /// </summary>
@@ -296,5 +299,12 @@ internal class VadFrameCounter
         if (_recentTriggers.Count < _framesUntilTrigger) return false;
 
         return _consecutiveTriggers >= _framesUntilTrigger; // Or full window check: !_recentTriggers.Any(f => !f)
+    }
+
+    /// <summary>Clears the sliding window and consecutive-trigger count.</summary>
+    public void Reset()
+    {
+        _recentTriggers.Clear();
+        _consecutiveTriggers = 0;
     }
 }

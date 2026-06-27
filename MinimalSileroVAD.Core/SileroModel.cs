@@ -7,7 +7,7 @@ namespace MinimalSileroVAD.Core;
 /// <summary>
 /// Silero VAD inference using the bundled V4 ONNX model (h/c LSTM states).
 /// </summary>
-public class SileroModel : IDisposable
+public class SileroModel : ISileroModel
 {
     /// <summary>Sample rate expected by the bundled Silero V4 model.</summary>
     public const int RequiredSampleRate = 16000;
@@ -35,6 +35,9 @@ public class SileroModel : IDisposable
     /// <summary>Gets the speech probability from the most recent inference.</summary>
     public float GetLastProbability() => _lastProbability;
 
+    /// <inheritdoc />
+    public float LastProbability => _lastProbability;
+
     /// <summary>Loads the Silero VAD model from a readable ONNX stream.</summary>
     public SileroModel(Stream modelStream, float threshold)
     {
@@ -46,7 +49,7 @@ public class SileroModel : IDisposable
         modelStream.CopyTo(memoryStream);
         var modelBytes = memoryStream.ToArray();
 
-        _session = CreateSession(modelBytes);
+        _session = OnnxSessionFactory.Create(modelBytes);
 
         _threshold = threshold;
         _hState = new float[Layers * Batch * Hidden];
@@ -56,32 +59,6 @@ public class SileroModel : IDisposable
         _srTensor = new DenseTensor<long>(new[] { (long)RequiredSampleRate }, new[] { 1 });
         _hTensor = new DenseTensor<float>(_hState, new[] { Layers, Batch, Hidden });
         _cTensor = new DenseTensor<float>(_cState, new[] { Layers, Batch, Hidden });
-    }
-
-    private static InferenceSession CreateSession(byte[] modelBytes)
-    {
-        try
-        {
-            var cudaOpts = new SessionOptions
-            {
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
-            };
-            cudaOpts.AppendExecutionProvider_CUDA();
-            var session = new InferenceSession(modelBytes, cudaOpts);
-            Log.Information("Silero model loaded with CUDA execution provider.");
-            return session;
-        }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "CUDA execution provider unavailable; falling back to CPU.");
-            var cpuOpts = new SessionOptions
-            {
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
-            };
-            var session = new InferenceSession(modelBytes, cpuOpts);
-            Log.Information("Silero model loaded with CPU execution provider.");
-            return session;
-        }
     }
 
     /// <summary>Returns whether the provided 16 kHz PCM16 window contains speech.</summary>
@@ -133,9 +110,8 @@ public class SileroModel : IDisposable
             nameof(pcm16));
     }
 
-    /// <summary>Clears the LSTM hidden state between audio streams.</summary>
-    [Obsolete("Not yet wired into the segmenter lifecycle; reserved for future per-stream reset support.")]
-    public void ResetStates()
+    /// <inheritdoc />
+    public void ResetState()
     {
         lock (_inferenceLock)
         {
@@ -143,6 +119,10 @@ public class SileroModel : IDisposable
             Array.Clear(_cState);
         }
     }
+
+    /// <summary>Clears the LSTM hidden state between audio streams.</summary>
+    [Obsolete("Use ResetState() instead.")]
+    public void ResetStates() => ResetState();
 
     /// <inheritdoc />
     public void Dispose()

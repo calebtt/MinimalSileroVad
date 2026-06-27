@@ -4,7 +4,7 @@
 
 ## Overview
 
-MinimalSileroVad is a .NET implementation for Voice Activity Detection (VAD) and speech segmentation. It uses the Silero VAD AI model to determine if audio input contains speech, providing a lightweight pipeline for detecting and segmenting speech from streaming 16 kHz mono PCM audio via ONNX inference. This project is designed for developers needing efficient, real-time voice detection in applications like telephony, voice assistants, or audio processing tools.
+MinimalSileroVad is a .NET implementation for Voice Activity Detection (VAD) and speech segmentation. It uses the Silero VAD AI model to determine if audio input contains speech, providing a lightweight pipeline for detecting and segmenting speech from streaming 8 kHz or 16 kHz mono PCM audio via ONNX inference. This project is designed for developers needing efficient, real-time voice detection in applications like telephony, voice assistants, or audio processing tools.
 
 Key highlights:
 - **Minimalist Design**: Focuses on core VAD functionality with minimal dependencies.
@@ -52,32 +52,55 @@ This project is ideal for building speech detection components in automated syst
 
 ### Library
 
-Reference `MinimalSileroVAD.Core`, create a `VadSpeechSegmenterSileroV4`, subscribe to its
-segment events, and push 16 kHz mono PCM frames as they arrive:
+The library bundles two Silero model generations behind a shared design:
+
+- **V5 — recommended** (`VadSpeechSegmenterSileroV5`): configured via `VadOptions`, supports
+  **8 kHz and 16 kHz**, emits rich `SpeechSegment` payloads (audio + timing + peak probability),
+  and supports `Reset()` between streams.
+- **V4** (`VadSpeechSegmenterSileroV4`): the original API, retained unchanged for compatibility.
+
+#### V5 (recommended)
 
 ```csharp
 using MinimalSileroVAD.Core;
 
-// 16 kHz mono PCM, pushed in fixed-size frames (32 ms = 512 samples here).
-using var segmenter = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
+var options = new VadOptions { SampleRate = 16000, Threshold = 0.3f };
+using var segmenter = new VadSpeechSegmenterSileroV5(options);
 
-segmenter.SentenceBegin += (_, _) =>
-    Console.WriteLine("Speech started");
+segmenter.SpeechStarted += (_, _) => Console.WriteLine("Speech started");
 
-segmenter.SentenceCompleted += (_, audio) =>
+segmenter.SpeechCompleted += (_, segment) =>
 {
-    // `audio` is a MemoryStream holding the full utterance as 16-bit PCM
-    // (including the pre-speech padding) — feed it to STT, save it, etc.
-    Console.WriteLine($"Utterance complete: {audio.Length} bytes");
+    // segment.Pcm is the full utterance as 16-bit mono PCM (including pre-speech padding).
+    Console.WriteLine($"+{segment.Duration.TotalMilliseconds:F0} ms, peak p={segment.Probability:F2}, {segment.Pcm.Length} bytes");
+    // segment.AsStream() hands the audio to STT, a file, etc.
 };
 
-// Feed frames from your capture source; each frame is 32 ms of PCM16.
+// Feed mono PCM16 frames as they arrive (sample rate comes from VadOptions).
+foreach (byte[] frame in CapturePcmFrames())
+    segmenter.PushFrame(frame, frameLengthMs: 32);
+
+// Starting a new stream? Clear model state and buffers:
+segmenter.Reset();
+```
+
+`VadOptions` also exposes `BeginOfUtteranceMs`, `EndOfUtteranceMs`, `PreSpeechMs`,
+`MsPerFrame`, and `MaxSpeechLengthMs` for tuning sensitivity and timing.
+
+#### V4 (legacy)
+
+```csharp
+using MinimalSileroVAD.Core;
+
+using var segmenter = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
+segmenter.SentenceBegin += (_, _) => Console.WriteLine("Speech started");
+segmenter.SentenceCompleted += (_, audio) =>
+    Console.WriteLine($"Utterance complete: {audio.Length} bytes");
+
+// V4 is 16 kHz only and takes the sample rate per frame.
 foreach (byte[] frame in CapturePcmFrames())
     segmenter.PushFrame(frame, sampleRate: 16000, frameLengthMs: 32);
 ```
-
-Tune sensitivity and timing through the constructor (`threshold`, `beginOfUtteranceMs`,
-`endOfUtteranceMs`, `preSpeechMs`, `maxSpeechLengthMs`).
 
 ### Test app
 

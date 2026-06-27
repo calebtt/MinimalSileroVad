@@ -7,7 +7,7 @@
 		<!-- Auto-generates .nupkg on release build -->
 		<PackageId>MinimalSileroVAD</PackageId>
 		<!-- Unique ID; check nuget.org for conflicts -->
-		<Version>1.0.0</Version>
+		<Version>1.1.0</Version>
 		<!-- Semantic version; update for releases -->
 		<Authors>Caleb Taylor</Authors>
 		<Description>Cross-platform Voice Activity Detection using Silero ONNX Runtime. Provides simple APIs for speech segmentation without WebRTC dependencies. Includes embedded Silero VAD model for seamless integration.</Description>
@@ -24,7 +24,7 @@
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<!-- Displays on nuget.org -->
 		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-		<PackageReleaseNotes>Initial release: Embedded Silero model, Serilog integration, and robust VAD segmentation APIs.</PackageReleaseNotes>
+		<PackageReleaseNotes>1.1.0: Add Silero V5 model support (SileroModelV5, VadSpeechSegmenterSileroV5) with 8 kHz/16 kHz audio, a VadOptions config object, SpeechSegment event payloads, and per-stream Reset(). V4 API retained unchanged.</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<!-- Use the CUDA runtime on Linux + Windows by default; macOS has no CUDA build.
@@ -44,8 +44,9 @@
 
 		<InternalsVisibleTo Include="MinimalSileroVAD.Core.Tests" />
 
-		<!-- Embed Silero model (no file copy needed at runtime) -->
+		<!-- Embed Silero models (no file copy needed at runtime) -->
 		<EmbeddedResource Include="models\silero_vad.onnx" />
+		<EmbeddedResource Include="models\silero_vad_v5.onnx" />
 
 		<!-- Include README for package -->
 		<None Include="..\README.md" Pack="true" PackagePath="" />
