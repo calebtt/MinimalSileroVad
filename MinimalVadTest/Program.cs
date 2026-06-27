@@ -1,7 +1,7 @@
-﻿using MinimalVadTest.Audio;
+using MinimalSileroVAD.Core;
+using MinimalVadTest.Audio;
 using Serilog;
 using System.Runtime.CompilerServices;
-using VadSpeechSegmenterSileroV4 = MinimalSileroVAD.Core.VadSpeechSegmenterSileroV4;
 
 namespace MinimalVadTest;
 
@@ -44,17 +44,17 @@ internal static class Program
         }
 
         var pulseDevice = ParseOption(args, "--pulse-device");
+        var modelVersion = ResolveModelVersion(args);
 
+        IDisposable? segmenter = null;
         try
         {
             _streamingSttClient = new SttProviderStreaming("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin");
 
-            Log.Information("Starting MinimalVadTest");
+            Log.Information("Starting MinimalVadTest with Silero {Model} model", modelVersion);
             Log.Information("EnableEcho: {EnableEcho}", EnableEcho);
 
-            using var segmenter = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
-            segmenter.SentenceBegin += OnSentenceBegin;
-            segmenter.SentenceCompleted += OnSentenceCompleted;
+            Action<byte[]> pushFrame = CreateSegmenter(modelVersion, out segmenter);
 
             using var cts = new CancellationTokenSource();
             Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -67,7 +67,7 @@ internal static class Program
                     break;
 
                 chunkCounter++;
-                ProcessChunk(segmenter, rawChunk, chunkCounter);
+                ProcessChunk(pushFrame, rawChunk, chunkCounter);
             }
         }
         catch (OperationCanceledException)
@@ -80,41 +80,75 @@ internal static class Program
         }
         finally
         {
+            segmenter?.Dispose();
             Log.CloseAndFlush();
         }
     }
 
-    private static void OnSentenceBegin(object? sender, object e)
+    // Builds the segmenter for the chosen model, wires its events to the shared handlers,
+    // and returns a push delegate for the capture loop.
+    private static Action<byte[]> CreateSegmenter(ModelVersion version, out IDisposable segmenter)
     {
-        Log.Information("*** Sentence Begin at {Time:F2}s ***", audioTimeSec);
+        var seg = new VadSpeechSegmenter(new VadOptions
+        {
+            ModelVersion = version,
+            SampleRate = AudioSampleRate,
+            MsPerFrame = ChunkDurationMs,
+        });
+        seg.SpeechStarted += OnSpeechBegin;
+        seg.SpeechCompleted += (_, segment) => HandleUtterance(segment.Pcm);
+        segmenter = seg;
+        return frame => seg.PushFrame(frame, ChunkDurationMs);
     }
 
-    private static async void OnSentenceCompleted(object? sender, MemoryStream sentence)
+    private static void OnSpeechBegin(object? sender, EventArgs e)
     {
-        var durationSeconds = sentence.Length / 2f / AudioSampleRate;
-        Log.Information("*** Sentence Completed at {Time:F2}s — Duration {Dur:F2}s ({Bytes} bytes) ***",
-            audioTimeSec, durationSeconds, sentence.Length);
+        Log.Information("*** Speech Begin at {Time:F2}s ***", audioTimeSec);
+    }
+
+    private static async void HandleUtterance(byte[] pcm)
+    {
+        var durationSeconds = pcm.Length / 2f / AudioSampleRate;
+        Log.Information("*** Speech Completed at {Time:F2}s — Duration {Dur:F2}s ({Bytes} bytes) ***",
+            audioTimeSec, durationSeconds, pcm.Length);
 
         if (_streamingSttClient is null)
             return;
 
         await Task.Run(async () =>
         {
+            using var sentence = new MemoryStream(pcm);
             await _streamingSttClient.ProcessAudioChunkAsync(sentence);
             var transcript = await _streamingSttClient.WaitForCompleteTranscriptionAsync();
             Log.Information("Transcription: {Text}", transcript ?? "");
         });
     }
 
-    private static void ProcessChunk(VadSpeechSegmenterSileroV4 segmenter, float[] chunk, int chunkCounter)
+    private static void ProcessChunk(Action<byte[]> pushFrame, float[] chunk, int chunkCounter)
     {
         float avgAmp = chunk.Average(Math.Abs);
         if (chunkCounter % 10 == 0)
             Log.Information("Chunk #{Chunk} AvgAmp {Amp:F3}", chunkCounter, avgAmp);
 
         byte[] monoPcm = Algos.FloatToPcm16(chunk);
-        segmenter.PushFrame(monoPcm, AudioSampleRate, ChunkDurationMs);
+        pushFrame(monoPcm);
         audioTimeSec += (double)ChunkSamples / AudioSampleRate;
+    }
+
+    // Picks the model from --model v4|v5, or prompts interactively (defaulting to V5).
+    private static ModelVersion ResolveModelVersion(string[] args)
+    {
+        var flag = ParseOption(args, "--model");
+        if (flag is not null)
+        {
+            if (flag.Equals("v4", StringComparison.OrdinalIgnoreCase)) return ModelVersion.V4;
+            if (flag.Equals("v5", StringComparison.OrdinalIgnoreCase)) return ModelVersion.V5;
+            Log.Warning("Unknown --model '{Flag}'; expected v4 or v5. Falling back to prompt.", flag);
+        }
+
+        Console.Write("Select Silero model — [1] V5 (recommended)  [2] V4  (default 1): ");
+        var input = Console.ReadLine()?.Trim();
+        return input is "2" or "v4" or "V4" ? ModelVersion.V4 : ModelVersion.V5;
     }
 
     private static bool HasFlag(string[] args, string flag) =>

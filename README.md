@@ -4,7 +4,7 @@
 
 ## Overview
 
-MinimalSileroVad is a .NET implementation for Voice Activity Detection (VAD) and speech segmentation. It uses the Silero VAD AI model to determine if audio input contains speech, providing a lightweight pipeline for detecting and segmenting speech from streaming 16 kHz mono PCM audio via ONNX inference. This project is designed for developers needing efficient, real-time voice detection in applications like telephony, voice assistants, or audio processing tools.
+MinimalSileroVad is a .NET implementation for Voice Activity Detection (VAD) and speech segmentation. It uses the Silero VAD AI model to determine if audio input contains speech, providing a lightweight pipeline for detecting and segmenting speech from streaming 8 kHz or 16 kHz mono PCM audio via ONNX inference. This project is designed for developers needing efficient, real-time voice detection in applications like telephony, voice assistants, or audio processing tools.
 
 Key highlights:
 - **Minimalist Design**: Focuses on core VAD functionality with minimal dependencies.
@@ -17,10 +17,10 @@ This project is ideal for building speech detection components in automated syst
 ## Features
 
 - **Voice Activity Detection**: Accurately identifies speech segments in audio inputs using AI.
-- **Speech Segmentation**: Breaks down audio into speech and non-speech parts with timestamps.
+- **Speech Segmentation**: Emits complete utterances with start time, duration, and peak probability.
+- **Silero V4 and V5**: Both models are bundled; pick one via `VadOptions.ModelVersion` (V5 supports 8 kHz and 16 kHz).
 - **Real-Time Processing**: Supports streaming audio for live detection.
-- **Model Compatibility**: Uses the pre-trained Silero VAD model via ONNX.
-- **Customizable Thresholds**: Adjust sensitivity for speech detection.
+- **Customizable Thresholds**: Adjust sensitivity and utterance timing via `VadOptions`.
 - **Logging Support**: Includes basic logging for debugging and monitoring.
 - **Cross-Platform**: Runs on Windows & Linux .NET environments with GPU/CPU support.
 
@@ -42,7 +42,7 @@ This project is ideal for building speech detection components in automated syst
 
     dotnet restore
 
-3. The bundled Silero V4 ONNX model is embedded as a resource and loaded at runtime — no model file or extra configuration required.
+3. The Silero V4 and V5 ONNX models are embedded as resources and loaded at runtime — no model file or extra configuration required.
 
 4. Build the project:
 
@@ -52,32 +52,42 @@ This project is ideal for building speech detection components in automated syst
 
 ### Library
 
-Reference `MinimalSileroVAD.Core`, create a `VadSpeechSegmenterSileroV4`, subscribe to its
-segment events, and push 16 kHz mono PCM frames as they arrive:
+Create a `VadSpeechSegmenter` from a `VadOptions`, subscribe to its segment events, and push
+mono PCM16 frames as they arrive. The Silero model is chosen with `VadOptions.ModelVersion`:
+
+- **`ModelVersion.V5`** (default, recommended) — supports **8 kHz and 16 kHz**.
+- **`ModelVersion.V4`** — the original model, **16 kHz only**.
 
 ```csharp
 using MinimalSileroVAD.Core;
 
-// 16 kHz mono PCM, pushed in fixed-size frames (32 ms = 512 samples here).
-using var segmenter = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
-
-segmenter.SentenceBegin += (_, _) =>
-    Console.WriteLine("Speech started");
-
-segmenter.SentenceCompleted += (_, audio) =>
+var options = new VadOptions
 {
-    // `audio` is a MemoryStream holding the full utterance as 16-bit PCM
-    // (including the pre-speech padding) — feed it to STT, save it, etc.
-    Console.WriteLine($"Utterance complete: {audio.Length} bytes");
+    ModelVersion = ModelVersion.V5, // or ModelVersion.V4
+    SampleRate = 16000,             // 8000 supported on V5
+    Threshold = 0.3f,
+};
+using var segmenter = new VadSpeechSegmenter(options);
+
+segmenter.SpeechStarted += (_, _) => Console.WriteLine("Speech started");
+
+segmenter.SpeechCompleted += (_, segment) =>
+{
+    // segment.Pcm is the full utterance as 16-bit mono PCM (including pre-speech padding).
+    Console.WriteLine($"+{segment.Duration.TotalMilliseconds:F0} ms, peak p={segment.Probability:F2}, {segment.Pcm.Length} bytes");
+    // segment.AsStream() hands the audio to STT, a file, etc.
 };
 
-// Feed frames from your capture source; each frame is 32 ms of PCM16.
+// Feed mono PCM16 frames as they arrive (sample rate comes from VadOptions).
 foreach (byte[] frame in CapturePcmFrames())
-    segmenter.PushFrame(frame, sampleRate: 16000, frameLengthMs: 32);
+    segmenter.PushFrame(frame, frameLengthMs: 32);
+
+// Starting a new stream? Clear model state and buffers:
+segmenter.Reset();
 ```
 
-Tune sensitivity and timing through the constructor (`threshold`, `beginOfUtteranceMs`,
-`endOfUtteranceMs`, `preSpeechMs`, `maxSpeechLengthMs`).
+`VadOptions` also exposes `BeginOfUtteranceMs`, `EndOfUtteranceMs`, `PreSpeechMs`,
+`MsPerFrame`, and `MaxSpeechLengthMs` for tuning sensitivity and timing.
 
 ### Test app
 
@@ -86,8 +96,12 @@ cd MinimalVadTest
 dotnet run
 ```
 
-Linux options:
+On startup the app prompts to choose the **V5** (default) or **V4** model; pass
+`--model v5` or `--model v4` to skip the prompt.
 
+Options:
+
+- `dotnet run -- --model v5|v4` — select the Silero model (skips the prompt)
 - `dotnet run -- --list-devices` — list PulseAudio/PipeWire capture sources
 - `dotnet run -- --pulse-device <source>` — record from a specific source
 
@@ -100,7 +114,7 @@ dotnet test MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj
 ```
 
 Unit tests cover the segmenter state machine, frame counters, pre-speech buffer
-windowing, and `SileroModel` validation plus real CPU inference. They run on CI
+windowing, and V4/V5 model validation plus real CPU inference. They run on CI
 for every pull request (see the badge above).
 
 > The Core library uses the CUDA ONNX runtime on Linux/Windows by default. At

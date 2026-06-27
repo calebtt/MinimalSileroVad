@@ -7,13 +7,22 @@ namespace MinimalSileroVAD.Core.Tests;
 internal static class TestAudio
 {
     private const string ModelResource = "MinimalSileroVAD.Core.models.silero_vad.onnx";
+    private const string ModelResourceV5 = "MinimalSileroVAD.Core.models.silero_vad_v5.onnx";
 
-    /// <summary>Loads a fresh <see cref="SileroModel"/> from the model embedded in the Core assembly.</summary>
-    public static SileroModel CreateModel(float threshold = 0.3f)
+    /// <summary>Loads a fresh <see cref="SileroModelV4"/> from the model embedded in the Core assembly.</summary>
+    public static SileroModelV4 CreateModelV4(float threshold = 0.3f)
     {
-        var stream = typeof(SileroModel).Assembly.GetManifestResourceStream(ModelResource)
+        var stream = typeof(SileroModelV4).Assembly.GetManifestResourceStream(ModelResource)
             ?? throw new InvalidOperationException($"Embedded model '{ModelResource}' not found.");
-        return new SileroModel(stream, threshold);
+        return new SileroModelV4(stream, threshold);
+    }
+
+    /// <summary>Loads a fresh <see cref="SileroModelV5"/> from the V5 model embedded in the Core assembly.</summary>
+    public static SileroModelV5 CreateModelV5(float threshold = 0.3f)
+    {
+        var stream = typeof(SileroModelV5).Assembly.GetManifestResourceStream(ModelResourceV5)
+            ?? throw new InvalidOperationException($"Embedded model '{ModelResourceV5}' not found.");
+        return new SileroModelV5(stream, threshold);
     }
 
     /// <summary>Builds a little-endian PCM16 buffer of <paramref name="sampleCount"/> samples.</summary>

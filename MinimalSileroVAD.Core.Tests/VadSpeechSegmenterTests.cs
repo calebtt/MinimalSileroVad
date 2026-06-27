@@ -5,46 +5,99 @@ namespace MinimalSileroVAD.Core.Tests;
 
 public class VadSpeechSegmenterTests
 {
-    // 32 ms @ 16 kHz = 512 samples = one Silero window.
-    private static byte[] SilenceFrame() => TestAudio.Silence(SileroModel.RequiredSamples);
+    // Model/sample-rate combinations the unified segmenter supports.
+    public static TheoryData<ModelVersion, int> SupportedConfigs => new()
+    {
+        { ModelVersion.V4, 16000 },
+        { ModelVersion.V5, 16000 },
+        { ModelVersion.V5, 8000 },
+    };
+
+    private static byte[] SilenceWindow(ModelVersion model, int sampleRate)
+    {
+        int samples = model == ModelVersion.V5
+            ? SileroModelV5.WindowSamples(sampleRate)
+            : SileroModelV4.RequiredSamples;
+        return TestAudio.Silence(samples);
+    }
 
     [Fact]
-    public void PushFrame_WrongSampleRate_Throws()
+    public void V4WithEightKilohertz_ThrowsInConstructor()
     {
-        using var seg = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
-        Assert.Throws<ArgumentException>(() => seg.PushFrame(SilenceFrame(), 8000, 32));
+        Assert.Throws<ArgumentException>(
+            () => new VadSpeechSegmenter(new VadOptions { ModelVersion = ModelVersion.V4, SampleRate = 8000 }));
+    }
+
+    [Fact]
+    public void InvalidSampleRate_ThrowsInConstructor()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new VadSpeechSegmenter(new VadOptions { SampleRate = 44100 }));
     }
 
     [Fact]
     public void PushFrame_AfterDispose_Throws()
     {
-        var seg = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
+        var seg = new VadSpeechSegmenter(new VadOptions());
         seg.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => seg.PushFrame(SilenceFrame(), 16000, 32));
+        Assert.Throws<ObjectDisposedException>(() => seg.PushFrame(SilenceWindow(ModelVersion.V5, 16000), 32));
     }
 
-    [Fact]
-    public void Silence_DoesNotStartOrCompleteSentence()
+    [Theory]
+    [MemberData(nameof(SupportedConfigs))]
+    public void Silence_ProducesNoSegment(ModelVersion model, int sampleRate)
     {
-        using var seg = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
+        using var seg = new VadSpeechSegmenter(new VadOptions { ModelVersion = model, SampleRate = sampleRate });
         int begins = 0, completes = 0;
-        seg.SentenceBegin += (_, _) => begins++;
-        seg.SentenceCompleted += (_, _) => completes++;
+        seg.SpeechStarted += (_, _) => begins++;
+        seg.SpeechCompleted += (_, _) => completes++;
 
+        var frame = SilenceWindow(model, sampleRate);
         for (int i = 0; i < 60; i++)
-            seg.PushFrame(SilenceFrame(), 16000, 32);
+            seg.PushFrame(frame, 32);
 
         Assert.Equal(0, begins);
         Assert.Equal(0, completes);
-        Assert.False(seg.IsSentenceInProgress);
+        Assert.False(seg.IsSpeechInProgress);
+    }
+
+    [Theory]
+    [MemberData(nameof(SupportedConfigs))]
+    public void Reset_RestoresCleanState(ModelVersion model, int sampleRate)
+    {
+        using var seg = new VadSpeechSegmenter(new VadOptions { ModelVersion = model, SampleRate = sampleRate });
+        var frame = SilenceWindow(model, sampleRate);
+        for (int i = 0; i < 10; i++)
+            seg.PushFrame(frame, 32);
+
+        seg.Reset();
+
+        Assert.False(seg.IsSpeechInProgress);
+        var exception = Record.Exception(() => seg.PushFrame(frame, 32));
+        Assert.Null(exception);
     }
 
     [Fact]
     public void Dispose_IsIdempotent()
     {
-        var seg = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
+        var seg = new VadSpeechSegmenter(new VadOptions());
         seg.Dispose();
         var exception = Record.Exception(() => seg.Dispose());
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public void SpeechSegment_AsStream_LengthMatchesPcm()
+    {
+        var segment = new SpeechSegment
+        {
+            StartTime = TimeSpan.Zero,
+            Duration = TimeSpan.FromMilliseconds(32),
+            Probability = 0.9f,
+            Pcm = new byte[1024],
+        };
+
+        using var stream = segment.AsStream();
+        Assert.Equal(segment.Pcm.Length, stream.Length);
     }
 }

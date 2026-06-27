@@ -7,14 +7,14 @@
 		<!-- Auto-generates .nupkg on release build -->
 		<PackageId>MinimalSileroVAD</PackageId>
 		<!-- Unique ID; check nuget.org for conflicts -->
-		<Version>1.0.0</Version>
+		<Version>2.0.0</Version>
 		<!-- Semantic version; update for releases -->
 		<Authors>Caleb Taylor</Authors>
-		<Description>Cross-platform Voice Activity Detection using Silero ONNX Runtime. Provides simple APIs for speech segmentation without WebRTC dependencies. Includes embedded Silero VAD model for seamless integration.</Description>
+		<Description>Cross-platform Voice Activity Detection and speech segmentation using the Silero VAD models via ONNX Runtime, with no WebRTC dependency. Bundles both the Silero V4 and V5 models (V5 supports 8 kHz and 16 kHz) and selects between them through a single configurable VadSpeechSegmenter. Runs on CPU or CUDA, with automatic CPU fallback.</Description>
 		<PackageProjectUrl>https://github.com/calebtt/MinimalSileroVAD</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/calebtt/MinimalSileroVAD.git</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
-		<PackageTags>vad; onnx; silero; voice; audio; cross-platform; speech-detection; voice-activity-detection</PackageTags>
+		<PackageTags>vad; onnx; silero; silero-v5; voice; audio; cross-platform; speech-detection; speech-segmentation; voice-activity-detection</PackageTags>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<!-- XML docs for IntelliSense -->
 		<Nullable>enable</Nullable>
@@ -24,7 +24,7 @@
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<!-- Displays on nuget.org -->
 		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-		<PackageReleaseNotes>Initial release: Embedded Silero model, Serilog integration, and robust VAD segmentation APIs.</PackageReleaseNotes>
+		<PackageReleaseNotes>2.0.0 (breaking): Unified V4/V5 behind a single VadSpeechSegmenter(VadOptions) selected by VadOptions.ModelVersion, one IVadSpeechSegmenter interface, and SpeechSegment event payloads. Adds Silero V5 (8 kHz/16 kHz) and per-stream Reset(). Renamed SileroModel to SileroModelV4. Removed VadSpeechSegmenterSileroV4/V5 and the old MemoryStream event API.</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<!-- Use the CUDA runtime on Linux + Windows by default; macOS has no CUDA build.
@@ -44,8 +44,9 @@
 
 		<InternalsVisibleTo Include="MinimalSileroVAD.Core.Tests" />
 
-		<!-- Embed Silero model (no file copy needed at runtime) -->
+		<!-- Embed Silero models (no file copy needed at runtime) -->
 		<EmbeddedResource Include="models\silero_vad.onnx" />
+		<EmbeddedResource Include="models\silero_vad_v5.onnx" />
 
 		<!-- Include README for package -->
 		<None Include="..\README.md" Pack="true" PackagePath="" />
