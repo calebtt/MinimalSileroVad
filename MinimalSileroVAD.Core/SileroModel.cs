@@ -134,6 +134,7 @@ public class SileroModel : IDisposable
     }
 
     /// <summary>Clears the LSTM hidden state between audio streams.</summary>
+    [Obsolete("Not yet wired into the segmenter lifecycle; reserved for future per-stream reset support.")]
     public void ResetStates()
     {
         lock (_inferenceLock)
