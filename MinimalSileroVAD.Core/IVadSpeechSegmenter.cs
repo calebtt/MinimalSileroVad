@@ -15,7 +15,7 @@ public interface IVadSpeechSegmenter : IDisposable
     public event EventHandler<MemoryStream>? SentenceCompleted;
 
     /// <summary>
-    /// Expects mono PCM. Uses the pre-speech buffer to compute VAD on the latest 32ms window (Silero v5 requirement).
+    /// Expects mono PCM. Uses the pre-speech buffer to compute VAD on the latest 32ms (512-sample) window.
     /// </summary>
     /// <param name="monoPcm">mono PCM chunk</param>
     /// <param name="sampleRate">Sample rate (must be 16kHz)</param>

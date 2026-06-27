@@ -51,13 +51,23 @@ This project is ideal for building speech detection components in automated syst
 
 ## Usage
 
-1. Run the application:
+### Library
 
-    dotnet run
+Integrate `MinimalSileroVAD.Core` into your app and push 16 kHz mono PCM frames through `VadSpeechSegmenterSileroV5`.
 
-2. Process audio:
-   - Provide an audio file or stream as input.
-   - The tool will output detected speech segments with start/end timestamps.
+### Test app
+
+```bash
+cd MinimalVadTest
+dotnet run
+```
+
+Linux options:
+
+- `dotnet run -- --list-devices` — list PulseAudio/PipeWire capture sources
+- `dotnet run -- --pulse-device <source>` — record from a specific source
+
+The test app downloads a Whisper model on first run for optional transcription output.
 
 For advanced customization:
 - Modify detection thresholds in the code (e.g., probability threshold for speech).

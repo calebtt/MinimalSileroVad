@@ -5,107 +5,150 @@ using Serilog;
 namespace MinimalSileroVAD.Core;
 
 /// <summary>
-/// Initializes a new instance of the SileroModel class for speech activity detection using an ONNX model stream
-/// and detection threshold.
+/// Silero VAD inference using the bundled V4 ONNX model (h/c LSTM states).
 /// </summary>
 public class SileroModel : IDisposable
 {
+    /// <summary>Sample rate expected by the bundled Silero V4 model.</summary>
+    public const int RequiredSampleRate = 16000;
+
+    /// <summary>Number of PCM samples required per inference window.</summary>
+    public const int RequiredSamples = 512;
+
+    /// <summary>Number of PCM16 bytes required per inference window.</summary>
+    public const int RequiredBytes = RequiredSamples * 2;
+
     private readonly InferenceSession _session;
     private readonly float _threshold;
     private readonly float[] _hState;
     private readonly float[] _cState;
+    private readonly float[] _audioBuffer;
+    private readonly DenseTensor<float> _inputTensor;
+    private readonly DenseTensor<long> _srTensor;
+    private readonly DenseTensor<float> _hTensor;
+    private readonly DenseTensor<float> _cTensor;
+    private readonly object _inferenceLock = new();
     private const int Layers = 2, Hidden = 64, Batch = 1;
     private bool _isDisposed;
     private float _lastProbability;
 
-    /// <summary>
-    /// Gets the probability from the last VAD inference. Useful for logging or diagnostics.
-    /// </summary>
-    /// <returns>The speech probability from the most recent call to <see cref="IsSpeech(ReadOnlySpan{byte}, int)"/>.</returns>
-    public float GetLastProbability() => _lastProbability; // Public: For logging/diagnostics
+    /// <summary>Gets the speech probability from the most recent inference.</summary>
+    public float GetLastProbability() => _lastProbability;
 
-    /// <summary>
-    /// Initializes a new instance of the <see cref="SileroModel"/> class using the provided model stream and detection threshold.
-    /// </summary>
-    /// <param name="modelStream">The readable stream containing the ONNX model data for Silero VAD.</param>
-    /// <param name="threshold">The probability threshold above which audio is considered speech (typically between 0.0 and 1.0).</param>
-    /// <exception cref="ArgumentNullException">Thrown if <paramref name="modelStream"/> is null.</exception>
-    /// <exception cref="ArgumentException">Thrown if <paramref name="modelStream"/> is not readable.</exception>
-    /// <exception cref="OnnxRuntimeException">Thrown if the ONNX model fails to load.</exception>
+    /// <summary>Loads the Silero VAD model from a readable ONNX stream.</summary>
     public SileroModel(Stream modelStream, float threshold)
     {
         ArgumentNullException.ThrowIfNull(modelStream, nameof(modelStream));
         if (!modelStream.CanRead)
             throw new ArgumentException("Model stream must be readable.", nameof(modelStream));
 
-        try
-        {
-            var opts = new SessionOptions
-            {
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
-            };
-            opts.AppendExecutionProvider_CUDA();
+        using var memoryStream = new MemoryStream();
+        modelStream.CopyTo(memoryStream);
+        var modelBytes = memoryStream.ToArray();
 
-            // Load model
-            using var memoryStream = new MemoryStream();
-            modelStream.CopyTo(memoryStream);
-            memoryStream.Position = 0;
-            _session = new InferenceSession(memoryStream.ToArray(), opts);
-            Log.Information("Silero model loaded successfully with providers.");
-        }
-        catch (OnnxRuntimeException ex)
-        {
-            Log.Error(ex, "Failed to load ONNX model from stream.");
-            throw;
-        }
+        _session = CreateSession(modelBytes);
 
         _threshold = threshold;
         _hState = new float[Layers * Batch * Hidden];
         _cState = new float[Layers * Batch * Hidden];
+        _audioBuffer = new float[RequiredSamples];
+        _inputTensor = new DenseTensor<float>(_audioBuffer, new[] { Batch, RequiredSamples });
+        _srTensor = new DenseTensor<long>(new[] { (long)RequiredSampleRate }, new[] { 1 });
+        _hTensor = new DenseTensor<float>(_hState, new[] { Layers, Batch, Hidden });
+        _cTensor = new DenseTensor<float>(_cState, new[] { Layers, Batch, Hidden });
     }
 
-    /// <summary>
-    /// Determines if the provided PCM audio span contains speech based on the model's inference.
-    /// </summary>
-    /// <param name="pcm16">A read-only span of 16-bit PCM audio bytes (must have even length).</param>
-    /// <param name="sampleRate">The sample rate of the audio (expected to be 16000 Hz).</param>
-    /// <returns><c>true</c> if the audio is classified as speech (probability > threshold); otherwise, <c>false</c>.</returns>
-    /// <exception cref="ArgumentException">Thrown if <paramref name="pcm16"/> has an odd length.</exception>
+    private static InferenceSession CreateSession(byte[] modelBytes)
+    {
+        try
+        {
+            var cudaOpts = new SessionOptions
+            {
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+            };
+            cudaOpts.AppendExecutionProvider_CUDA();
+            var session = new InferenceSession(modelBytes, cudaOpts);
+            Log.Information("Silero model loaded with CUDA execution provider.");
+            return session;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "CUDA execution provider unavailable; falling back to CPU.");
+            var cpuOpts = new SessionOptions
+            {
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+            };
+            var session = new InferenceSession(modelBytes, cpuOpts);
+            Log.Information("Silero model loaded with CPU execution provider.");
+            return session;
+        }
+    }
+
+    /// <summary>Returns whether the provided 16 kHz PCM16 window contains speech.</summary>
     public bool IsSpeech(ReadOnlySpan<byte> pcm16, int sampleRate)
     {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+
         if (pcm16.Length % 2 != 0)
-            throw new ArgumentException("PCM16 data must have even length.");
+            throw new ArgumentException("PCM16 data must have even length.", nameof(pcm16));
 
-        int frameLen = pcm16.Length / 2;
-        Span<float> audio = stackalloc float[frameLen];
-        for (int i = 0; i < frameLen; i++)
-            audio[i] = BitConverter.ToInt16(pcm16[(i * 2)..]) / 32768f;
+        if (sampleRate != RequiredSampleRate)
+            throw new ArgumentException($"Sample rate must be {RequiredSampleRate} Hz.", nameof(sampleRate));
 
-        var inputs = new[]
+        ReadOnlySpan<byte> window = NormalizeWindow(pcm16);
+
+        lock (_inferenceLock)
         {
-            NamedOnnxValue.CreateFromTensor("input", new DenseTensor<float>(audio.ToArray(), new[] {1, frameLen})),
-            NamedOnnxValue.CreateFromTensor("sr", new DenseTensor<long>(new[] { (long)sampleRate }, new[] {1})),
-            NamedOnnxValue.CreateFromTensor("h", new DenseTensor<float>(_hState, new[] {Layers, 1, Hidden})),
-            NamedOnnxValue.CreateFromTensor("c", new DenseTensor<float>(_cState, new[] {Layers, 1, Hidden}))
-        };
+            for (int i = 0; i < RequiredSamples; i++)
+                _audioBuffer[i] = BitConverter.ToInt16(window[(i * 2)..]) / 32768f;
 
-        using var result = _session.Run(inputs);
-        float prob = result.First(r => r.Name == "output").AsTensor<float>()[0];
-        result.First(r => r.Name == "hn").AsTensor<float>().ToArray().CopyTo(_hState, 0);
-        result.First(r => r.Name == "cn").AsTensor<float>().ToArray().CopyTo(_cState, 0);
-        _lastProbability = prob;
+            var inputs = new[]
+            {
+                NamedOnnxValue.CreateFromTensor("input", _inputTensor),
+                NamedOnnxValue.CreateFromTensor("sr", _srTensor),
+                NamedOnnxValue.CreateFromTensor("h", _hTensor),
+                NamedOnnxValue.CreateFromTensor("c", _cTensor),
+            };
 
-        return prob > _threshold;
+            using var result = _session.Run(inputs);
+            float prob = result.First(r => r.Name == "output").AsTensor<float>()[0];
+            result.First(r => r.Name == "hn").AsTensor<float>().ToArray().CopyTo(_hState, 0);
+            result.First(r => r.Name == "cn").AsTensor<float>().ToArray().CopyTo(_cState, 0);
+            _lastProbability = prob;
+
+            return prob > _threshold;
+        }
     }
 
-    /// <summary>
-    /// Releases all resources used by the <see cref="SileroModel"/>, including the ONNX inference session.
-    /// </summary>
+    private static ReadOnlySpan<byte> NormalizeWindow(ReadOnlySpan<byte> pcm16)
+    {
+        if (pcm16.Length == RequiredBytes)
+            return pcm16;
+
+        if (pcm16.Length > RequiredBytes)
+            return pcm16[^RequiredBytes..];
+
+        throw new ArgumentException(
+            $"Silero VAD requires at least {RequiredBytes} bytes ({RequiredSamples} samples); got {pcm16.Length}.",
+            nameof(pcm16));
+    }
+
+    /// <summary>Clears the LSTM hidden state between audio streams.</summary>
+    public void ResetStates()
+    {
+        lock (_inferenceLock)
+        {
+            Array.Clear(_hState);
+            Array.Clear(_cState);
+        }
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
         if (!_isDisposed)
         {
-            _session?.Dispose();
+            _session.Dispose();
             _isDisposed = true;
             Log.Information("SileroModel disposed.");
         }
