@@ -4,7 +4,7 @@
 
 ## Overview
 
-MinimalSileroVad is a .NET implementation for Voice Activity Detection (VAD) and speech segmentation. It uses the Silero VAD AI model to determine if audio input contains speech, providing a lightweight pipeline for detecting and segmenting speech in audio streams or files via ONNX inference. This project is designed for developers needing efficient, real-time voice detection in applications like telephony, voice assistants, or audio processing tools.
+MinimalSileroVad is a .NET implementation for Voice Activity Detection (VAD) and speech segmentation. It uses the Silero VAD AI model to determine if audio input contains speech, providing a lightweight pipeline for detecting and segmenting speech from streaming 16 kHz mono PCM audio via ONNX inference. This project is designed for developers needing efficient, real-time voice detection in applications like telephony, voice assistants, or audio processing tools.
 
 Key highlights:
 - **Minimalist Design**: Focuses on core VAD functionality with minimal dependencies.
@@ -26,11 +26,10 @@ This project is ideal for building speech detection components in automated syst
 
 ## Prerequisites
 
-- .NET SDK (version 8.0 or higher recommended)
-- ONNX Runtime (for model inference)
-- cuDNN (for GPU acceleration with CUDA-enabled setups)
-- CUDA Toolkit (optional, for GPU support; ensure compatibility with ONNX Runtime)
-- Optional: NAudio (for microphone input in test projects)
+- .NET SDK 8.0 or higher.
+- ONNX Runtime and the Silero model are pulled in automatically via NuGet — no manual install.
+- *(Optional, GPU only)* An NVIDIA GPU with a matching CUDA/cuDNN install for hardware-accelerated inference. Without one, the library runs on CPU automatically.
+- *(Test app only)* Microphone capture uses NAudio on Windows and PulseAudio/PipeWire (`parec`) on Linux.
 
 ## Installation
 
@@ -43,9 +42,7 @@ This project is ideal for building speech detection components in automated syst
 
     dotnet restore
 
-3. Configure settings:
-   - The Silero VAD V5 ONNX file is now included in the package as a resource and loaded at runtime automatically.
-   - No configuration needed there.
+3. The bundled Silero V4 ONNX model is embedded as a resource and loaded at runtime — no model file or extra configuration required.
 
 4. Build the project:
 
@@ -55,7 +52,32 @@ This project is ideal for building speech detection components in automated syst
 
 ### Library
 
-Integrate `MinimalSileroVAD.Core` into your app and push 16 kHz mono PCM frames through `VadSpeechSegmenterSileroV4`.
+Reference `MinimalSileroVAD.Core`, create a `VadSpeechSegmenterSileroV4`, subscribe to its
+segment events, and push 16 kHz mono PCM frames as they arrive:
+
+```csharp
+using MinimalSileroVAD.Core;
+
+// 16 kHz mono PCM, pushed in fixed-size frames (32 ms = 512 samples here).
+using var segmenter = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
+
+segmenter.SentenceBegin += (_, _) =>
+    Console.WriteLine("Speech started");
+
+segmenter.SentenceCompleted += (_, audio) =>
+{
+    // `audio` is a MemoryStream holding the full utterance as 16-bit PCM
+    // (including the pre-speech padding) — feed it to STT, save it, etc.
+    Console.WriteLine($"Utterance complete: {audio.Length} bytes");
+};
+
+// Feed frames from your capture source; each frame is 32 ms of PCM16.
+foreach (byte[] frame in CapturePcmFrames())
+    segmenter.PushFrame(frame, sampleRate: 16000, frameLengthMs: 32);
+```
+
+Tune sensitivity and timing through the constructor (`threshold`, `beginOfUtteranceMs`,
+`endOfUtteranceMs`, `preSpeechMs`, `maxSpeechLengthMs`).
 
 ### Test app
 
@@ -81,9 +103,11 @@ Unit tests cover the segmenter state machine, frame counters, pre-speech buffer
 windowing, and `SileroModel` validation plus real CPU inference. They run on CI
 for every pull request (see the badge above).
 
-> By default the Core library uses the CUDA ONNX runtime on Linux/Windows. On a
-> machine without CUDA (including CI), build with `-p:UseCudaOnnxRuntime=false`
-> to pull the CPU runtime instead.
+> The Core library uses the CUDA ONNX runtime on Linux/Windows by default. At
+> startup it tries the GPU and falls back to CPU automatically when CUDA isn't
+> available, so no code changes are needed either way. On a machine that will
+> never have CUDA (including CI), build with `-p:UseCudaOnnxRuntime=false` to
+> pull the smaller CPU-only runtime.
 
 For advanced customization:
 - Modify detection thresholds in the code (e.g., probability threshold for speech).
