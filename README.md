@@ -17,10 +17,10 @@ This project is ideal for building speech detection components in automated syst
 ## Features
 
 - **Voice Activity Detection**: Accurately identifies speech segments in audio inputs using AI.
-- **Speech Segmentation**: Breaks down audio into speech and non-speech parts with timestamps.
+- **Speech Segmentation**: Emits complete utterances with start time, duration, and peak probability.
+- **Silero V4 and V5**: Both models are bundled; pick one via `VadOptions.ModelVersion` (V5 supports 8 kHz and 16 kHz).
 - **Real-Time Processing**: Supports streaming audio for live detection.
-- **Model Compatibility**: Uses the pre-trained Silero VAD model via ONNX.
-- **Customizable Thresholds**: Adjust sensitivity for speech detection.
+- **Customizable Thresholds**: Adjust sensitivity and utterance timing via `VadOptions`.
 - **Logging Support**: Includes basic logging for debugging and monitoring.
 - **Cross-Platform**: Runs on Windows & Linux .NET environments with GPU/CPU support.
 
@@ -42,7 +42,7 @@ This project is ideal for building speech detection components in automated syst
 
     dotnet restore
 
-3. The bundled Silero V4 ONNX model is embedded as a resource and loaded at runtime — no model file or extra configuration required.
+3. The Silero V4 and V5 ONNX models are embedded as resources and loaded at runtime — no model file or extra configuration required.
 
 4. Build the project:
 

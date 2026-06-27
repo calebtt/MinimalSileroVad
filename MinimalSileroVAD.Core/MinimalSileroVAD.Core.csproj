@@ -10,11 +10,11 @@
 		<Version>2.0.0</Version>
 		<!-- Semantic version; update for releases -->
 		<Authors>Caleb Taylor</Authors>
-		<Description>Cross-platform Voice Activity Detection using Silero ONNX Runtime. Provides simple APIs for speech segmentation without WebRTC dependencies. Includes embedded Silero VAD model for seamless integration.</Description>
+		<Description>Cross-platform Voice Activity Detection and speech segmentation using the Silero VAD models via ONNX Runtime, with no WebRTC dependency. Bundles both the Silero V4 and V5 models (V5 supports 8 kHz and 16 kHz) and selects between them through a single configurable VadSpeechSegmenter. Runs on CPU or CUDA, with automatic CPU fallback.</Description>
 		<PackageProjectUrl>https://github.com/calebtt/MinimalSileroVAD</PackageProjectUrl>
 		<RepositoryUrl>https://github.com/calebtt/MinimalSileroVAD.git</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
-		<PackageTags>vad; onnx; silero; voice; audio; cross-platform; speech-detection; voice-activity-detection</PackageTags>
+		<PackageTags>vad; onnx; silero; silero-v5; voice; audio; cross-platform; speech-detection; speech-segmentation; voice-activity-detection</PackageTags>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<!-- XML docs for IntelliSense -->
 		<Nullable>enable</Nullable>
