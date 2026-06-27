@@ -1,7 +1,8 @@
-/MinimalSileroVAD.Core/bin
-/MinimalSileroVAD.Core/obj
-/MinimalVadTest/bin
-/MinimalVadTest/obj
+# Build output (any project)
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
 /MinimalSileroVAD.Core/bin
 /MinimalSileroVAD.Core/.vs/MinimalSileroVAD.Core
 /MinimalVadTest/.vs/MinimalVadTest

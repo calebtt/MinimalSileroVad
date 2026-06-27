@@ -27,13 +27,22 @@
 		<PackageReleaseNotes>Initial release: Embedded Silero model, Serilog integration, and robust VAD segmentation APIs.</PackageReleaseNotes>
 	</PropertyGroup>
 
+	<!-- Use the CUDA runtime on Linux + Windows by default; macOS has no CUDA build.
+	     Override with -p:UseCudaOnnxRuntime=false for CPU-only/headless environments (e.g. CI),
+	     where the GPU native library can't load without CUDA installed. -->
+	<PropertyGroup Condition="'$(UseCudaOnnxRuntime)' == ''">
+		<UseCudaOnnxRuntime Condition="$([MSBuild]::IsOSPlatform('Windows')) Or $([MSBuild]::IsOSPlatform('Linux'))">true</UseCudaOnnxRuntime>
+		<UseCudaOnnxRuntime Condition="'$(UseCudaOnnxRuntime)' == ''">false</UseCudaOnnxRuntime>
+	</PropertyGroup>
+
 	<ItemGroup>
-		<!-- GPU (CUDA) package on Linux + Windows; SileroModel falls back to CPU at runtime when CUDA is unavailable. macOS has no CUDA build, so use the CPU package there. -->
-		<PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.23.1" Condition="$([MSBuild]::IsOSPlatform('Windows')) Or $([MSBuild]::IsOSPlatform('Linux'))" />
-		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.1" Condition="$([MSBuild]::IsOSPlatform('OSX'))" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.23.1" Condition="'$(UseCudaOnnxRuntime)' == 'true'" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.1" Condition="'$(UseCudaOnnxRuntime)' != 'true'" />
 		<!-- Update to latest if tested -->
 		<PackageReference Include="Serilog" Version="4.3.0" />
 		<!-- Update to latest if tested -->
+
+		<InternalsVisibleTo Include="MinimalSileroVAD.Core.Tests" />
 
 		<!-- Embed Silero model (no file copy needed at runtime) -->
 		<EmbeddedResource Include="models\silero_vad.onnx" />
