@@ -53,7 +53,7 @@ This project is ideal for building speech detection components in automated syst
 
 ### Library
 
-Integrate `MinimalSileroVAD.Core` into your app and push 16 kHz mono PCM frames through `VadSpeechSegmenterSileroV5`.
+Integrate `MinimalSileroVAD.Core` into your app and push 16 kHz mono PCM frames through `VadSpeechSegmenterSileroV4`.
 
 ### Test app
 

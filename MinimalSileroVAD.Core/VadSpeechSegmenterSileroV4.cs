@@ -9,7 +9,7 @@ namespace MinimalSileroVAD.Core;
 /// <summary>
 /// Implementation of VAD-based speech segmenter using the bundled Silero VAD v4 ONNX model.
 /// </summary>
-public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
+public class VadSpeechSegmenterSileroV4 : IVadSpeechSegmenter, IDisposable
 {
     private readonly SileroModel _model;
     private readonly float _threshold;
@@ -33,7 +33,7 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
 
     public bool IsSentenceInProgress => _isUtteranceInProgress;
 
-    public VadSpeechSegmenterSileroV5(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 32, int maxSpeechLengthMs = 7_000, float threshold = 0.3f)
+    public VadSpeechSegmenterSileroV4(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 32, int maxSpeechLengthMs = 7_000, float threshold = 0.3f)
     {
         _threshold = threshold;
         _msPerFrame = msPerFrame;

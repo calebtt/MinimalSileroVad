@@ -7,3 +7,5 @@
 /MinimalVadTest/.vs/MinimalVadTest
 /MinimalVadTest/.vs
 /MinimalVadTest/models/
+# Whisper weights downloaded at runtime land in a cwd-relative models/ (e.g. when run from the repo root)
+/models/

@@ -105,12 +105,22 @@ internal static class LinuxPulseAudioCapture
         if (timeout == Timeout.InfiniteTimeSpan)
             return await stream.ReadAsync(buffer, ct);
 
-        var readTask = stream.ReadAsync(buffer, CancellationToken.None).AsTask();
-        var completed = await Task.WhenAny(readTask, Task.Delay(timeout, ct));
-        if (completed != readTask)
-            throw new OperationCanceledException("Audio read timed out.");
+        // Bind the read to a linked source so a timeout actually cancels the pending
+        // read instead of leaving it running against the shared buffer in the background.
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var readTask = stream.ReadAsync(buffer, readCts.Token).AsTask();
 
-        return await readTask;
+        var completed = await Task.WhenAny(readTask, Task.Delay(timeout, ct));
+        if (completed == readTask)
+            return await readTask;
+
+        // Timed out (or ct cancelled the delay): cancel the read and observe its
+        // result so the abandoned task can't write to the buffer or fault unobserved.
+        readCts.Cancel();
+        _ = readTask.ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
+
+        ct.ThrowIfCancellationRequested();
+        throw new OperationCanceledException("Audio read timed out.");
     }
 
     private static InvalidOperationException CreateOpenFailure(string source, Process process)
