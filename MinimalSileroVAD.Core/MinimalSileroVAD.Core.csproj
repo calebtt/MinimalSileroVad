@@ -28,7 +28,8 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.23.1" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.1" Condition="$([MSBuild]::IsOSPlatform('Linux')) Or $([MSBuild]::IsOSPlatform('OSX'))" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.23.1" Condition="$([MSBuild]::IsOSPlatform('Windows'))" />
 		<!-- Update to latest if tested -->
 		<PackageReference Include="Serilog" Version="4.3.0" />
 		<!-- Update to latest if tested -->

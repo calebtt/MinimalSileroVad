@@ -7,7 +7,7 @@ using Serilog;
 namespace MinimalSileroVAD.Core;
 
 /// <summary>
-/// Implementation of VAD-based speech segmenter using Silero VAD v5 model.
+/// Implementation of VAD-based speech segmenter using the bundled Silero VAD v4 ONNX model.
 /// </summary>
 public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
 {
@@ -33,7 +33,7 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
 
     public bool IsSentenceInProgress => _isUtteranceInProgress;
 
-    public VadSpeechSegmenterSileroV5(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 20, int maxSpeechLengthMs = 7_000, float threshold = 0.3f)
+    public VadSpeechSegmenterSileroV5(int endOfUtteranceMs = 550, int beginOfUtteranceMs = 500, int preSpeechMs = 1200, int msPerFrame = 32, int maxSpeechLengthMs = 7_000, float threshold = 0.3f)
     {
         _threshold = threshold;
         _msPerFrame = msPerFrame;
@@ -57,13 +57,15 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
     }
 
     /// <summary>
-    /// Expects mono PCM. Uses the pre-speech buffer to compute VAD on the latest 32ms window (Silero v5 requirement).
+    /// Expects mono PCM. Uses the pre-speech buffer to compute VAD on the latest 32ms (512-sample) window.
     /// </summary>
     /// <param name="monoPcm">mono PCM chunk</param>
     /// <param name="sampleRate">Sample rate (must be 16kHz)</param>
     /// <param name="frameLengthMs">Incoming frame length in ms (often 20ms for rtp)</param>
     public void PushFrame(byte[] monoPcm, int sampleRate, int frameLengthMs)
     {
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+
         const int ExpectedSampleRate = 16000;
         if ((int)sampleRate != ExpectedSampleRate)
         {
@@ -71,9 +73,7 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
         }
 
         const int BytesPerSample = 2;
-        const int VadWindowMs = 32; // Fixed for Silero v5
-        int vadWindowSamples = (int)(VadWindowMs * ExpectedSampleRate / 1000.0);
-        int vadWindowBytes = vadWindowSamples * BytesPerSample;
+        int vadWindowBytes = SileroModel.RequiredBytes;
 
         // Validate input length matches frameLength
         monoPcm = ValidateSamples(monoPcm, frameLengthMs, ExpectedSampleRate, BytesPerSample);
@@ -178,6 +178,7 @@ public class VadSpeechSegmenterSileroV5 : IVadSpeechSegmenter, IDisposable
     {
         if (!_isDisposed)
         {
+            _buf.Dispose();
             _model?.Dispose();
             _isDisposed = true;
             Log.Information("VadSpeechSegmenter disposed.");
@@ -207,45 +208,36 @@ internal class VadStartFramesBuffer
     public List<byte[]> GetFrames() => _frames;
 
     /// <summary>
-    /// Concatenates the latest frames to form a buffer of at least the requested size, padding with zeros if needed.
+    /// Returns exactly <paramref name="exactBytes"/> from the most recent audio, left-padded with silence if needed.
     /// </summary>
-    public byte[] GetLatestBytes(int minBytes)
+    public byte[] GetLatestBytes(int exactBytes)
     {
-        if (_frames.Count == 0) return new byte[minBytes]; // Empty: full silence
+        if (_frames.Count == 0)
+            return new byte[exactBytes];
 
-        // Calculate total bytes from last N frames until >= minBytes
         int totalBytes = 0;
-        int framesNeeded = 0;
         for (int i = _frames.Count - 1; i >= 0; i--)
         {
             totalBytes += _frames[i].Length;
-            framesNeeded++;
-            if (totalBytes >= minBytes) break;
+            if (totalBytes >= exactBytes)
+                break;
         }
 
-        // If still short, use all available
-        if (totalBytes < minBytes)
+        var collected = new byte[Math.Min(totalBytes, exactBytes)];
+        int offset = collected.Length;
+        for (int i = _frames.Count - 1; i >= 0 && offset > 0; i--)
         {
-            framesNeeded = _frames.Count;
+            var frame = _frames[i];
+            int copyLen = Math.Min(frame.Length, offset);
+            frame.AsSpan(frame.Length - copyLen, copyLen).CopyTo(collected.AsSpan(offset - copyLen));
+            offset -= copyLen;
         }
 
-        // Allocate output and concatenate backwards (latest first)
-        byte[] output = new byte[Math.Max(minBytes, totalBytes)];
-        int offset = 0;
-        for (int i = _frames.Count - framesNeeded; i < _frames.Count; i++)
-        {
-            ReadOnlySpan<byte> frameSpan = _frames[i];
-            frameSpan.CopyTo(output.AsSpan(offset));
-            offset += frameSpan.Length;
-        }
+        if (collected.Length == exactBytes)
+            return collected;
 
-        // Pad remainder with zeros (silence) if short
-        if (offset < minBytes)
-        {
-            // Already zero-initialized in C# array alloc
-            // No explicit clear needed
-        }
-
+        var output = new byte[exactBytes];
+        collected.CopyTo(output, exactBytes - collected.Length);
         return output;
     }
 }

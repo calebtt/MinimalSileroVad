@@ -1,7 +1,6 @@
-﻿using NAudio.Wave;
+﻿using MinimalVadTest.Audio;
 using Serilog;
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 using VadSpeechSegmenterSileroV5 = MinimalSileroVAD.Core.VadSpeechSegmenterSileroV5;
 
 namespace MinimalVadTest;
@@ -21,26 +20,30 @@ public static partial class Algos
     }
 }
 
-// Minimal VAD test app with microphone input, Silero VAD, and streaming STT.
-// Does require the silero_vad.onnx model file in the /models/ directory.
 internal static class Program
 {
     private const int AudioSampleRate = 16000;
-    private const int ChunkDurationMs = 32;                  // 512 samples @16 kHz (Silero default)
-    //private const int ChunkDurationMs = 30;                  // 512 samples @16 kHz (Silero default)
-    private const int ChunkSamples = AudioSampleRate * ChunkDurationMs / 1000; // 512
-    private static bool EnableEcho = false;                 // disable for testing
+    private const int ChunkDurationMs = 32;
+    private const int ChunkSamples = AudioSampleRate * ChunkDurationMs / 1000;
+    private static bool EnableEcho = false;
 
-    private static double audioTimeSec = 0;                   // running time counter (seconds)
-
+    private static double audioTimeSec = 0;
     private static SttProviderStreaming? _streamingSttClient;
 
-    private static async Task Main(string[] _)
+    private static async Task Main(string[] args)
     {
         Log.Logger = new LoggerConfiguration()
             .WriteTo.Console(outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}")
             .MinimumLevel.Information()
             .CreateLogger();
+
+        if (HasFlag(args, "--list-devices"))
+        {
+            Console.WriteLine(PulseAudioDevices.FormatSourceList());
+            return;
+        }
+
+        var pulseDevice = ParseOption(args, "--pulse-device");
 
         try
         {
@@ -58,17 +61,22 @@ internal static class Program
             Log.Information("Press Ctrl+C to stop…");
 
             int chunkCounter = 0;
-            await foreach (var rawChunk in CaptureAndEchoMicrophoneChunksAsync(ChunkSamples, EnableEcho, cts.Token))
+            await foreach (var rawChunk in CaptureAudioChunksAsync(pulseDevice, ChunkSamples, EnableEcho, cts.Token))
             {
-                if (cts.Token.IsCancellationRequested) break;
-                chunkCounter++;
+                if (cts.Token.IsCancellationRequested)
+                    break;
 
-                ProcessChunk(segmenter, rawChunk, cts.Token, chunkCounter);
+                chunkCounter++;
+                ProcessChunk(segmenter, rawChunk, chunkCounter);
             }
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Information("Stopped.");
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Application error: {ex}", ex.Message);
+            Log.Error(ex, "Application error: {Message}", ex.Message);
         }
         finally
         {
@@ -87,71 +95,68 @@ internal static class Program
         Log.Information("*** Sentence Completed at {Time:F2}s — Duration {Dur:F2}s ({Bytes} bytes) ***",
             audioTimeSec, durationSeconds, sentence.Length);
 
-        var _ = Task.Run(async () =>
+        if (_streamingSttClient is null)
+            return;
+
+        await Task.Run(async () =>
         {
-            await _streamingSttClient?.ProcessAudioChunkAsync(sentence);
-            var transcript = await _streamingSttClient?.WaitForCompleteTranscriptionAsync();
+            await _streamingSttClient.ProcessAudioChunkAsync(sentence);
+            var transcript = await _streamingSttClient.WaitForCompleteTranscriptionAsync();
             Log.Information("Transcription: {Text}", transcript ?? "");
         });
     }
 
-    private static void ProcessChunk(VadSpeechSegmenterSileroV5 segmenter, float[] chunk, CancellationToken ct, int chunkCounter)
+    private static void ProcessChunk(VadSpeechSegmenterSileroV5 segmenter, float[] chunk, int chunkCounter)
     {
         float avgAmp = chunk.Average(Math.Abs);
         if (chunkCounter % 10 == 0)
             Log.Information("Chunk #{Chunk} AvgAmp {Amp:F3}", chunkCounter, avgAmp);
 
         byte[] monoPcm = Algos.FloatToPcm16(chunk);
-        segmenter.PushFrame(monoPcm, 16000, 32);
+        segmenter.PushFrame(monoPcm, AudioSampleRate, ChunkDurationMs);
         audioTimeSec += (double)ChunkSamples / AudioSampleRate;
     }
 
-    // simplified mic capture (no change except for shorter delay and less logging)
-    private static async IAsyncEnumerable<float[]> CaptureAndEchoMicrophoneChunksAsync(
-        int chunkSamples, bool enableEcho, [EnumeratorCancellation] CancellationToken ct)
+    private static bool HasFlag(string[] args, string flag) =>
+        args.Any(arg => string.Equals(arg, flag, StringComparison.OrdinalIgnoreCase));
+
+    private static string? ParseOption(string[] args, string name)
     {
-        var channel = Channel.CreateBounded<float[]>(10);
-        using var waveIn = new WaveInEvent
+        for (int i = 0; i < args.Length; i++)
         {
-            WaveFormat = new WaveFormat(AudioSampleRate, 16, 1),
-            BufferMilliseconds = ChunkDurationMs
-        };
-
-        waveIn.DeviceNumber = 0;
-        var bufferedProvider = enableEcho ? new BufferedWaveProvider(waveIn.WaveFormat) : null;
-        WaveOutEvent? waveOut = null;
-        if (enableEcho && bufferedProvider != null)
-        {
-            bufferedProvider.BufferDuration = TimeSpan.FromMilliseconds(500);
-            waveOut = new WaveOutEvent();
-            waveOut.Init(bufferedProvider);
-            waveOut.Play();
+            if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                return args[i + 1];
         }
 
-        waveIn.DataAvailable += (s, e) =>
+        return null;
+    }
+
+    private static async IAsyncEnumerable<float[]> CaptureAudioChunksAsync(
+        string? pulseDevice,
+        int chunkSamples,
+        bool enableEcho,
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+#if WINDOWS_CAPTURE
+        if (enableEcho)
+            Log.Warning("Echo playback is only supported on Windows in this test app.");
+
+        await foreach (var chunk in WindowsNaudioCapture.CaptureChunksAsync(
+            AudioSampleRate, ChunkDurationMs, chunkSamples, enableEcho, ct))
         {
-            if (ct.IsCancellationRequested) return;
-            var chunk = new float[e.BytesRecorded / 2];
-            for (int i = 0; i < chunk.Length; i++)
-                chunk[i] = BitConverter.ToInt16(e.Buffer, i * 2) / 32768f;
-
-            channel.Writer.TryWrite(chunk);
-            bufferedProvider?.AddSamples(e.Buffer, 0, e.BytesRecorded);
-        };
-
-        Log.Information("Starting microphone recording…");
-        waveIn.StartRecording();
-
-        try
-        {
-            await foreach (var chunk in channel.Reader.ReadAllAsync(ct))
-                yield return chunk;
+            yield return chunk;
         }
-        finally
+#elif LINUX_CAPTURE
+        if (enableEcho)
+            Log.Warning("Echo playback is not supported on Linux in this test app.");
+
+        await foreach (var chunk in LinuxPulseAudioCapture.CaptureChunksAsync(
+            AudioSampleRate, chunkSamples, pulseDevice, ct))
         {
-            waveIn.StopRecording();
-            waveOut?.Stop();
-            waveOut?.Dispose();
+            yield return chunk;
         }
+#else
+        throw new PlatformNotSupportedException("Audio capture is supported on Windows (NAudio) and Linux (parec).");
+#endif
     }
 }
