@@ -1,5 +1,7 @@
 # MinimalSileroVad
 
+[![CI](https://github.com/calebtt/MinimalSileroVad/actions/workflows/ci.yml/badge.svg)](https://github.com/calebtt/MinimalSileroVad/actions/workflows/ci.yml)
+
 ## Overview
 
 MinimalSileroVad is a .NET implementation for Voice Activity Detection (VAD) and speech segmentation. It uses the Silero VAD AI model to determine if audio input contains speech, providing a lightweight pipeline for detecting and segmenting speech in audio streams or files via ONNX inference. This project is designed for developers needing efficient, real-time voice detection in applications like telephony, voice assistants, or audio processing tools.
@@ -68,6 +70,20 @@ Linux options:
 - `dotnet run -- --pulse-device <source>` — record from a specific source
 
 The test app downloads a Whisper model on first run for optional transcription output.
+
+### Tests
+
+```bash
+dotnet test MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj
+```
+
+Unit tests cover the segmenter state machine, frame counters, pre-speech buffer
+windowing, and `SileroModel` validation plus real CPU inference. They run on CI
+for every pull request (see the badge above).
+
+> By default the Core library uses the CUDA ONNX runtime on Linux/Windows. On a
+> machine without CUDA (including CI), build with `-p:UseCudaOnnxRuntime=false`
+> to pull the CPU runtime instead.
 
 For advanced customization:
 - Modify detection thresholds in the code (e.g., probability threshold for speech).

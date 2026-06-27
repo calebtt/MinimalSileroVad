@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinimalVadTest", "MinimalVa
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinimalSileroVAD.Core", "..\MinimalSileroVAD.Core\MinimalSileroVAD.Core.csproj", "{319CBBD0-9469-E2D2-5B72-40484971DDA0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MinimalSileroVAD.Core.Tests", "..\MinimalSileroVAD.Core.Tests\MinimalSileroVAD.Core.Tests.csproj", "{EB4E1F4A-5AEE-4BD0-B706-04A3EDCE19ED}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{319CBBD0-9469-E2D2-5B72-40484971DDA0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{319CBBD0-9469-E2D2-5B72-40484971DDA0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{319CBBD0-9469-E2D2-5B72-40484971DDA0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EB4E1F4A-5AEE-4BD0-B706-04A3EDCE19ED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EB4E1F4A-5AEE-4BD0-B706-04A3EDCE19ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EB4E1F4A-5AEE-4BD0-B706-04A3EDCE19ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EB4E1F4A-5AEE-4BD0-B706-04A3EDCE19ED}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

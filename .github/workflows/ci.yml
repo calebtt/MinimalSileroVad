@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ master ]
+  push:
+    branches: [ master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      # The GPU ONNX runtime can't load without CUDA on the runner, so build the
+      # CPU package here. SileroModel still runs real inference on CPU in tests.
+      UseCudaOnnxRuntime: 'false'
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: |
+          dotnet restore MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj
+          dotnet restore MinimalVadTest/MinimalVadTest.csproj
+
+      - name: Build
+        run: |
+          dotnet build MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj --no-restore -c Release
+          dotnet build MinimalVadTest/MinimalVadTest.csproj --no-restore -c Release
+
+      - name: Test
+        run: dotnet test MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj --no-build -c Release --verbosity normal
