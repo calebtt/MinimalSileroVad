@@ -52,20 +52,22 @@ This project is ideal for building speech detection components in automated syst
 
 ### Library
 
-The library bundles two Silero model generations behind a shared design:
+Create a `VadSpeechSegmenter` from a `VadOptions`, subscribe to its segment events, and push
+mono PCM16 frames as they arrive. The Silero model is chosen with `VadOptions.ModelVersion`:
 
-- **V5 — recommended** (`VadSpeechSegmenterSileroV5`): configured via `VadOptions`, supports
-  **8 kHz and 16 kHz**, emits rich `SpeechSegment` payloads (audio + timing + peak probability),
-  and supports `Reset()` between streams.
-- **V4** (`VadSpeechSegmenterSileroV4`): the original API, retained unchanged for compatibility.
-
-#### V5 (recommended)
+- **`ModelVersion.V5`** (default, recommended) — supports **8 kHz and 16 kHz**.
+- **`ModelVersion.V4`** — the original model, **16 kHz only**.
 
 ```csharp
 using MinimalSileroVAD.Core;
 
-var options = new VadOptions { SampleRate = 16000, Threshold = 0.3f };
-using var segmenter = new VadSpeechSegmenterSileroV5(options);
+var options = new VadOptions
+{
+    ModelVersion = ModelVersion.V5, // or ModelVersion.V4
+    SampleRate = 16000,             // 8000 supported on V5
+    Threshold = 0.3f,
+};
+using var segmenter = new VadSpeechSegmenter(options);
 
 segmenter.SpeechStarted += (_, _) => Console.WriteLine("Speech started");
 
@@ -86,21 +88,6 @@ segmenter.Reset();
 
 `VadOptions` also exposes `BeginOfUtteranceMs`, `EndOfUtteranceMs`, `PreSpeechMs`,
 `MsPerFrame`, and `MaxSpeechLengthMs` for tuning sensitivity and timing.
-
-#### V4 (legacy)
-
-```csharp
-using MinimalSileroVAD.Core;
-
-using var segmenter = new VadSpeechSegmenterSileroV4(msPerFrame: 32);
-segmenter.SentenceBegin += (_, _) => Console.WriteLine("Speech started");
-segmenter.SentenceCompleted += (_, audio) =>
-    Console.WriteLine($"Utterance complete: {audio.Length} bytes");
-
-// V4 is 16 kHz only and takes the sample rate per frame.
-foreach (byte[] frame in CapturePcmFrames())
-    segmenter.PushFrame(frame, sampleRate: 16000, frameLengthMs: 32);
-```
 
 ### Test app
 
@@ -127,7 +114,7 @@ dotnet test MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj
 ```
 
 Unit tests cover the segmenter state machine, frame counters, pre-speech buffer
-windowing, and `SileroModel` validation plus real CPU inference. They run on CI
+windowing, and V4/V5 model validation plus real CPU inference. They run on CI
 for every pull request (see the badge above).
 
 > The Core library uses the CUDA ONNX runtime on Linux/Windows by default. At

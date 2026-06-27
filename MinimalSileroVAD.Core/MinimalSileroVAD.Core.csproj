@@ -7,7 +7,7 @@
 		<!-- Auto-generates .nupkg on release build -->
 		<PackageId>MinimalSileroVAD</PackageId>
 		<!-- Unique ID; check nuget.org for conflicts -->
-		<Version>1.1.0</Version>
+		<Version>2.0.0</Version>
 		<!-- Semantic version; update for releases -->
 		<Authors>Caleb Taylor</Authors>
 		<Description>Cross-platform Voice Activity Detection using Silero ONNX Runtime. Provides simple APIs for speech segmentation without WebRTC dependencies. Includes embedded Silero VAD model for seamless integration.</Description>
@@ -24,7 +24,7 @@
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<!-- Displays on nuget.org -->
 		<PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-		<PackageReleaseNotes>1.1.0: Add Silero V5 model support (SileroModelV5, VadSpeechSegmenterSileroV5) with 8 kHz/16 kHz audio, a VadOptions config object, SpeechSegment event payloads, and per-stream Reset(). V4 API retained unchanged.</PackageReleaseNotes>
+		<PackageReleaseNotes>2.0.0 (breaking): Unified V4/V5 behind a single VadSpeechSegmenter(VadOptions) selected by VadOptions.ModelVersion, one IVadSpeechSegmenter interface, and SpeechSegment event payloads. Adds Silero V5 (8 kHz/16 kHz) and per-stream Reset(). Renamed SileroModel to SileroModelV4. Removed VadSpeechSegmenterSileroV4/V5 and the old MemoryStream event API.</PackageReleaseNotes>
 	</PropertyGroup>
 
 	<!-- Use the CUDA runtime on Linux + Windows by default; macOS has no CUDA build.

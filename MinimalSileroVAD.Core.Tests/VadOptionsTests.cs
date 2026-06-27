@@ -29,6 +29,13 @@ public class VadOptionsTests
         Assert.Throws<ArgumentException>(() => new VadOptions { SampleRate = sampleRate }.Validate());
     }
 
+    [Fact]
+    public void V4_With8kHz_Throws()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new VadOptions { ModelVersion = ModelVersion.V4, SampleRate = 8000 }.Validate());
+    }
+
     [Theory]
     [InlineData(-0.1f)]
     [InlineData(1.1f)]

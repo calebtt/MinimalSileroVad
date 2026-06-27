@@ -1,24 +1,28 @@
-﻿namespace MinimalSileroVAD.Core;
+namespace MinimalSileroVAD.Core;
 
 /// <summary>
-/// Interface for a VAD-based speech segmenter.
+/// VAD speech segmenter. Consumes mono PCM frames at the sample rate configured in
+/// <see cref="VadOptions"/> and raises events as utterances begin and complete.
 /// </summary>
 public interface IVadSpeechSegmenter : IDisposable
 {
-    /// <summary>
-    /// Fired when VAD detects the beginning of a new sentence.
-    /// </summary>
-    public event EventHandler? SentenceBegin;
-    /// <summary>
-    /// Fired when VAD detects the end of a sentence, contains the PCM audio of the sentence.
-    /// </summary>
-    public event EventHandler<MemoryStream>? SentenceCompleted;
+    /// <summary>Raised when the start of an utterance is detected.</summary>
+    event EventHandler? SpeechStarted;
 
-    /// <summary>
-    /// Expects mono PCM. Uses the pre-speech buffer to compute VAD on the latest 32ms (512-sample) window.
-    /// </summary>
-    /// <param name="monoPcm">mono PCM chunk</param>
-    /// <param name="sampleRate">Sample rate (must be 16kHz)</param>
-    /// <param name="frameLengthMs">Incoming frame length in ms (often 20ms for rtp)</param>
-    public void PushFrame(byte[] monoPcm, int sampleRate, int frameLengthMs);
+    /// <summary>Raised when an utterance completes, carrying the captured audio and metadata.</summary>
+    event EventHandler<SpeechSegment>? SpeechCompleted;
+
+    /// <summary>Gets whether an utterance is currently being captured.</summary>
+    bool IsSpeechInProgress { get; }
+
+    /// <summary>Gets the speech probability from the most recent frame.</summary>
+    float LastProbability { get; }
+
+    /// <summary>Pushes one frame of 16-bit mono PCM at the configured sample rate.</summary>
+    /// <param name="monoPcm">Mono PCM16 frame, little-endian.</param>
+    /// <param name="frameLengthMs">Frame length in milliseconds.</param>
+    void PushFrame(ReadOnlySpan<byte> monoPcm, int frameLengthMs);
+
+    /// <summary>Clears all state (model and buffers) so the segmenter can process a new stream.</summary>
+    void Reset();
 }

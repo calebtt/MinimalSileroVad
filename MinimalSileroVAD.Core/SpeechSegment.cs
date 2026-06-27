@@ -1,6 +1,6 @@
 namespace MinimalSileroVAD.Core;
 
-/// <summary>A completed speech segment (utterance) emitted by an <see cref="ISpeechSegmenter"/>.</summary>
+/// <summary>A completed speech segment (utterance) emitted by an <see cref="IVadSpeechSegmenter"/>.</summary>
 public sealed class SpeechSegment
 {
     /// <summary>Offset of the segment's first sample from the start of the audio stream.</summary>

@@ -2,7 +2,7 @@ namespace MinimalSileroVAD.Core;
 
 /// <summary>
 /// Low-level Silero VAD inference backend over a single PCM16 window.
-/// Implemented by the V4 (<see cref="SileroModel"/>) and V5 (<see cref="SileroModelV5"/>) models.
+/// Implemented by the V4 (<see cref="SileroModelV4"/>) and V5 (<see cref="SileroModelV5"/>) models.
 /// </summary>
 public interface ISileroModel : IDisposable
 {

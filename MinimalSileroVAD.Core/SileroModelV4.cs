@@ -5,9 +5,9 @@ using Serilog;
 namespace MinimalSileroVAD.Core;
 
 /// <summary>
-/// Silero VAD inference using the bundled V4 ONNX model (h/c LSTM states).
+/// Silero VAD inference using the bundled V4 ONNX model (separate h/c LSTM states, 16 kHz only).
 /// </summary>
-public class SileroModel : ISileroModel
+public class SileroModelV4 : ISileroModel
 {
     /// <summary>Sample rate expected by the bundled Silero V4 model.</summary>
     public const int RequiredSampleRate = 16000;
@@ -32,14 +32,11 @@ public class SileroModel : ISileroModel
     private bool _isDisposed;
     private float _lastProbability;
 
-    /// <summary>Gets the speech probability from the most recent inference.</summary>
-    public float GetLastProbability() => _lastProbability;
-
     /// <inheritdoc />
     public float LastProbability => _lastProbability;
 
-    /// <summary>Loads the Silero VAD model from a readable ONNX stream.</summary>
-    public SileroModel(Stream modelStream, float threshold)
+    /// <summary>Loads the Silero V4 VAD model from a readable ONNX stream.</summary>
+    public SileroModelV4(Stream modelStream, float threshold)
     {
         ArgumentNullException.ThrowIfNull(modelStream, nameof(modelStream));
         if (!modelStream.CanRead)
@@ -120,10 +117,6 @@ public class SileroModel : ISileroModel
         }
     }
 
-    /// <summary>Clears the LSTM hidden state between audio streams.</summary>
-    [Obsolete("Use ResetState() instead.")]
-    public void ResetStates() => ResetState();
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -131,7 +124,7 @@ public class SileroModel : ISileroModel
         {
             _session.Dispose();
             _isDisposed = true;
-            Log.Information("SileroModel disposed.");
+            Log.Information("SileroModelV4 disposed.");
         }
     }
 }

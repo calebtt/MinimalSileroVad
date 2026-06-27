@@ -4,13 +4,14 @@ using Serilog;
 namespace MinimalSileroVAD.Core;
 
 /// <summary>
-/// Speech segmenter built on the bundled Silero <b>V5</b> ONNX model. Configured via
-/// <see cref="VadOptions"/>, supports 8 kHz and 16 kHz, and emits <see cref="SpeechSegment"/>
-/// payloads carrying the captured audio plus timing and probability metadata.
+/// Speech segmenter over a bundled Silero model (V4 or V5, selected via <see cref="VadOptions"/>).
+/// Supports 8 kHz and 16 kHz (V5) and emits <see cref="SpeechSegment"/> payloads carrying the
+/// captured audio plus timing and peak-probability metadata.
 /// </summary>
-public sealed class VadSpeechSegmenterSileroV5 : ISpeechSegmenter
+public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
 {
-    private const string ResourceName = "MinimalSileroVAD.Core.models.silero_vad_v5.onnx";
+    private const string ResourceV4 = "MinimalSileroVAD.Core.models.silero_vad.onnx";
+    private const string ResourceV5 = "MinimalSileroVAD.Core.models.silero_vad_v5.onnx";
 
     private readonly VadOptions _options;
     private readonly ISileroModel _model;
@@ -41,20 +42,19 @@ public sealed class VadSpeechSegmenterSileroV5 : ISpeechSegmenter
     /// <inheritdoc />
     public float LastProbability => _model.LastProbability;
 
-    /// <summary>Creates a segmenter over the embedded Silero V5 model using the supplied options.</summary>
-    public VadSpeechSegmenterSileroV5(VadOptions options)
+    /// <summary>Creates a segmenter over the embedded Silero model selected by the supplied options.</summary>
+    public VadSpeechSegmenter(VadOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         options.Validate();
 
         _options = options;
         _sampleRate = options.SampleRate;
-        _bytesPerWindow = SileroModelV5.WindowSamples(_sampleRate) * 2;
+        _model = CreateModel(options);
+        _bytesPerWindow = WindowSamples(options) * 2;
 
-        using var modelStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(ResourceName)
-            ?? throw new FileNotFoundException($"Embedded model resource '{ResourceName}' not found.");
-        _model = new SileroModelV5(modelStream, options.Threshold);
-        Log.Information("Silero VAD V5 initialized: {SampleRate} Hz, threshold {Threshold}.", _sampleRate, options.Threshold);
+        Log.Information("Silero VAD initialized: {Model} model, {SampleRate} Hz, threshold {Threshold}.",
+            options.ModelVersion, _sampleRate, options.Threshold);
 
         int startFrames = Math.Max(1, (int)Math.Ceiling((double)options.BeginOfUtteranceMs / options.MsPerFrame));
         int endFrames = Math.Max(1, (int)Math.Ceiling((double)options.EndOfUtteranceMs / options.MsPerFrame));
@@ -65,9 +65,9 @@ public sealed class VadSpeechSegmenterSileroV5 : ISpeechSegmenter
         _preBuf = new VadStartFramesBuffer(preFrames);
     }
 
-    /// <summary>Creates a segmenter with default options at the given sample rate.</summary>
-    public VadSpeechSegmenterSileroV5(int sampleRate = 16000)
-        : this(new VadOptions { SampleRate = sampleRate })
+    /// <summary>Creates a segmenter with default options for the given model and sample rate.</summary>
+    public VadSpeechSegmenter(ModelVersion model = ModelVersion.V5, int sampleRate = 16000)
+        : this(new VadOptions { ModelVersion = model, SampleRate = sampleRate })
     {
     }
 
@@ -150,6 +150,22 @@ public sealed class VadSpeechSegmenterSileroV5 : ISpeechSegmenter
 
     private long CurrentUtteranceMs => _buf.Length / 2 * 1000L / _sampleRate;
 
+    private static int WindowSamples(VadOptions options) =>
+        options.ModelVersion == ModelVersion.V5
+            ? SileroModelV5.WindowSamples(options.SampleRate)
+            : SileroModelV4.RequiredSamples;
+
+    private static ISileroModel CreateModel(VadOptions options)
+    {
+        string resource = options.ModelVersion == ModelVersion.V5 ? ResourceV5 : ResourceV4;
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource)
+            ?? throw new FileNotFoundException($"Embedded model resource '{resource}' not found.");
+
+        return options.ModelVersion == ModelVersion.V5
+            ? new SileroModelV5(stream, options.Threshold)
+            : new SileroModelV4(stream, options.Threshold);
+    }
+
     private byte[] ValidateFrame(ReadOnlySpan<byte> monoPcm, int frameLengthMs)
     {
         int expectedBytes = frameLengthMs * _sampleRate / 1000 * 2;
@@ -194,7 +210,120 @@ public sealed class VadSpeechSegmenterSileroV5 : ISpeechSegmenter
             _buf.Dispose();
             _model.Dispose();
             _isDisposed = true;
-            Log.Information("VadSpeechSegmenterSileroV5 disposed.");
+            Log.Information("VadSpeechSegmenter disposed.");
         }
+    }
+}
+
+/// <summary>Rolling buffer of recent frames used for pre-speech padding and the VAD window.</summary>
+internal class VadStartFramesBuffer
+{
+    private readonly int _maxFrames;
+    private readonly List<byte[]> _frames = new();
+
+    public VadStartFramesBuffer(int frameCount)
+    {
+        _maxFrames = frameCount;
+    }
+
+    public void AddFrame(ReadOnlySpan<byte> frame)
+    {
+        if (_frames.Count >= _maxFrames)
+        {
+            _frames.RemoveAt(0);
+        }
+        _frames.Add(frame.ToArray());
+    }
+
+    public List<byte[]> GetFrames() => _frames;
+
+    /// <summary>Drops all buffered frames.</summary>
+    public void Clear() => _frames.Clear();
+
+    /// <summary>
+    /// Returns exactly <paramref name="exactBytes"/> from the most recent audio, left-padded with silence if needed.
+    /// </summary>
+    public byte[] GetLatestBytes(int exactBytes)
+    {
+        if (_frames.Count == 0)
+            return new byte[exactBytes];
+
+        int totalBytes = 0;
+        for (int i = _frames.Count - 1; i >= 0; i--)
+        {
+            totalBytes += _frames[i].Length;
+            if (totalBytes >= exactBytes)
+                break;
+        }
+
+        var collected = new byte[Math.Min(totalBytes, exactBytes)];
+        int offset = collected.Length;
+        for (int i = _frames.Count - 1; i >= 0 && offset > 0; i--)
+        {
+            var frame = _frames[i];
+            int copyLen = Math.Min(frame.Length, offset);
+            frame.AsSpan(frame.Length - copyLen, copyLen).CopyTo(collected.AsSpan(offset - copyLen));
+            offset -= copyLen;
+        }
+
+        if (collected.Length == exactBytes)
+            return collected;
+
+        var output = new byte[exactBytes];
+        collected.CopyTo(output, exactBytes - collected.Length);
+        return output;
+    }
+}
+
+/// <summary>Counts consecutive trigger frames to decide when speech starts or ends.</summary>
+internal class VadFrameCounter
+{
+    private readonly int _framesUntilTrigger;
+    private readonly Queue<bool> _recentTriggers; // Sliding window: Recent frames only
+    private int _consecutiveTriggers; // Running consecutive count (resets on false)
+
+    public VadFrameCounter(int framesUntilStart)
+    {
+        _framesUntilTrigger = framesUntilStart;
+        _recentTriggers = new Queue<bool>(); // Fixed-size via Enqueue/Dequeue
+        _consecutiveTriggers = 0;
+    }
+
+    public void CountTriggerFrame()
+    {
+        _recentTriggers.Enqueue(true);
+        _consecutiveTriggers++;
+
+        // Auto-prune window to ~_framesUntilTrigger + buffer (prevents memory growth)
+        while (_recentTriggers.Count > _framesUntilTrigger + 5)
+        {
+            _recentTriggers.Dequeue();
+        }
+    }
+
+    public void CountNonTriggerFrame()
+    {
+        _recentTriggers.Enqueue(false);
+        _consecutiveTriggers = 0; // Reset consecutive on non-trigger
+
+        while (_recentTriggers.Count > _framesUntilTrigger + 5)
+        {
+            _recentTriggers.Dequeue();
+        }
+    }
+
+    public bool ShouldActivate()
+    {
+        // Activate if recent N frames are all true (sliding AND)
+        if (_recentTriggers.Count < _framesUntilTrigger) return false;
+
+        return _consecutiveTriggers >= _framesUntilTrigger;
+    }
+
+    /// <summary>Clears the sliding window and consecutive-trigger count.</summary>
+    public void Reset()
+    {
+        _recentTriggers.Clear();
+        _consecutiveTriggers = 0;
     }
 }

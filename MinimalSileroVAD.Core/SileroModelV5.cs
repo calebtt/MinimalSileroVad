@@ -26,6 +26,14 @@ public class SileroModelV5 : ISileroModel
     private bool _isDisposed;
     private float _lastProbability;
 
+    // Reused across calls; (re)built only when the window size or sample rate changes.
+    private float[] _audioBuffer = Array.Empty<float>();
+    private DenseTensor<float>? _inputTensor;
+    private DenseTensor<long>? _srTensor;
+    private NamedOnnxValue[]? _inputs;
+    private int _bufferedWindowSamples = -1;
+    private long _bufferedSampleRate = -1;
+
     /// <inheritdoc />
     public float LastProbability => _lastProbability;
 
@@ -67,26 +75,54 @@ public class SileroModelV5 : ISileroModel
 
         lock (_inferenceLock)
         {
-            var audio = new float[windowSamples];
+            EnsureBuffers(windowSamples, sampleRate);
+
             for (int i = 0; i < windowSamples; i++)
-                audio[i] = BitConverter.ToInt16(window[(i * 2)..]) / 32768f;
+                _audioBuffer[i] = BitConverter.ToInt16(window[(i * 2)..]) / 32768f;
 
-            var inputTensor = new DenseTensor<float>(audio, new[] { 1, windowSamples });
-            var srTensor = new DenseTensor<long>(new[] { (long)sampleRate }, new[] { 1 });
-
-            var inputs = new[]
-            {
-                NamedOnnxValue.CreateFromTensor("input", inputTensor),
-                NamedOnnxValue.CreateFromTensor("state", _stateTensor),
-                NamedOnnxValue.CreateFromTensor("sr", srTensor),
-            };
-
-            using var result = _session.Run(inputs);
+            using var result = _session.Run(_inputs!);
             float prob = result.First(r => r.Name == "output").AsTensor<float>()[0];
-            result.First(r => r.Name == "stateN").AsTensor<float>().ToArray().CopyTo(_state, 0);
-            _lastProbability = prob;
 
+            // Copy the recurrent state back into the buffer the input "state" tensor wraps.
+            var stateOut = result.First(r => r.Name == "stateN").AsTensor<float>();
+            for (int i = 0; i < StateLength; i++)
+                _state[i] = stateOut.GetValue(i);
+
+            _lastProbability = prob;
             return prob > _threshold;
+        }
+    }
+
+    // Reuses the audio buffer, input/sr tensors, and named-input list across calls,
+    // rebuilding only when the window size or sample rate changes. The state tensor
+    // wraps the persistent _state array, so it never needs rebuilding.
+    private void EnsureBuffers(int windowSamples, int sampleRate)
+    {
+        bool rebuildInputs = _inputs is null;
+
+        if (_bufferedWindowSamples != windowSamples)
+        {
+            _audioBuffer = new float[windowSamples];
+            _inputTensor = new DenseTensor<float>(_audioBuffer, new[] { 1, windowSamples });
+            _bufferedWindowSamples = windowSamples;
+            rebuildInputs = true;
+        }
+
+        if (_bufferedSampleRate != sampleRate)
+        {
+            _srTensor = new DenseTensor<long>(new[] { (long)sampleRate }, new[] { 1 });
+            _bufferedSampleRate = sampleRate;
+            rebuildInputs = true;
+        }
+
+        if (rebuildInputs)
+        {
+            _inputs = new[]
+            {
+                NamedOnnxValue.CreateFromTensor("input", _inputTensor!),
+                NamedOnnxValue.CreateFromTensor("state", _stateTensor),
+                NamedOnnxValue.CreateFromTensor("sr", _srTensor!),
+            };
         }
     }
 

@@ -22,8 +22,6 @@ public static partial class Algos
 
 internal static class Program
 {
-    private enum ModelVersion { V4, V5 }
-
     private const int AudioSampleRate = 16000;
     private const int ChunkDurationMs = 32;
     private const int ChunkSamples = AudioSampleRate * ChunkDurationMs / 1000;
@@ -87,28 +85,20 @@ internal static class Program
         }
     }
 
-    // Builds the chosen segmenter, wires its events to the shared handlers, and returns a
-    // push delegate so the capture loop doesn't need to know which model version is active.
+    // Builds the segmenter for the chosen model, wires its events to the shared handlers,
+    // and returns a push delegate for the capture loop.
     private static Action<byte[]> CreateSegmenter(ModelVersion version, out IDisposable segmenter)
     {
-        if (version == ModelVersion.V5)
+        var seg = new VadSpeechSegmenter(new VadOptions
         {
-            var seg = new VadSpeechSegmenterSileroV5(new VadOptions
-            {
-                SampleRate = AudioSampleRate,
-                MsPerFrame = ChunkDurationMs,
-            });
-            seg.SpeechStarted += OnSpeechBegin;
-            seg.SpeechCompleted += (_, segment) => HandleUtterance(segment.Pcm);
-            segmenter = seg;
-            return frame => seg.PushFrame(frame, ChunkDurationMs);
-        }
-
-        var v4 = new VadSpeechSegmenterSileroV4(msPerFrame: ChunkDurationMs);
-        v4.SentenceBegin += OnSpeechBegin;
-        v4.SentenceCompleted += (_, sentence) => HandleUtterance(sentence.ToArray());
-        segmenter = v4;
-        return frame => v4.PushFrame(frame, AudioSampleRate, ChunkDurationMs);
+            ModelVersion = version,
+            SampleRate = AudioSampleRate,
+            MsPerFrame = ChunkDurationMs,
+        });
+        seg.SpeechStarted += OnSpeechBegin;
+        seg.SpeechCompleted += (_, segment) => HandleUtterance(segment.Pcm);
+        segmenter = seg;
+        return frame => seg.PushFrame(frame, ChunkDurationMs);
     }
 
     private static void OnSpeechBegin(object? sender, EventArgs e)
