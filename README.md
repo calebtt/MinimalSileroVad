@@ -109,8 +109,12 @@ cd MinimalVadTest
 dotnet run
 ```
 
-Linux options:
+On startup the app prompts to choose the **V5** (default) or **V4** model; pass
+`--model v5` or `--model v4` to skip the prompt.
 
+Options:
+
+- `dotnet run -- --model v5|v4` — select the Silero model (skips the prompt)
 - `dotnet run -- --list-devices` — list PulseAudio/PipeWire capture sources
 - `dotnet run -- --pulse-device <source>` — record from a specific source
 
