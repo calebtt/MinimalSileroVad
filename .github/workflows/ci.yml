@@ -27,11 +27,15 @@ jobs:
         run: |
           dotnet restore MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj
           dotnet restore MinimalVadTest/MinimalVadTest.csproj
+          dotnet restore MinimalVadTest.Tests/MinimalVadTest.Tests.csproj
 
       - name: Build
         run: |
           dotnet build MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj --no-restore -c Release
           dotnet build MinimalVadTest/MinimalVadTest.csproj --no-restore -c Release
+          dotnet build MinimalVadTest.Tests/MinimalVadTest.Tests.csproj --no-restore -c Release
 
       - name: Test
-        run: dotnet test MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj --no-build -c Release --verbosity normal
+        run: |
+          dotnet test MinimalSileroVAD.Core.Tests/MinimalSileroVAD.Core.Tests.csproj --no-build -c Release --verbosity normal
+          dotnet test MinimalVadTest.Tests/MinimalVadTest.Tests.csproj --no-build -c Release --verbosity normal
