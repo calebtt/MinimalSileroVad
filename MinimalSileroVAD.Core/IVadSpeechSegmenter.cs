@@ -6,10 +6,21 @@ namespace MinimalSileroVAD.Core;
 /// </summary>
 public interface IVadSpeechSegmenter : IDisposable
 {
-    /// <summary>Raised when the start of an utterance is detected.</summary>
+    /// <summary>
+    /// Raised when a new segment starts capturing. Fires when speech is first detected after
+    /// silence, and also immediately after a <see cref="SpeechCompleted"/> caused by a
+    /// <see cref="VadOptions.MaxSpeechLengthMs"/> split — in that case the speaker's utterance
+    /// is still ongoing, so this is not necessarily a new "start of speech".
+    /// </summary>
     event EventHandler? SpeechStarted;
 
-    /// <summary>Raised when an utterance completes, carrying the captured audio and metadata.</summary>
+    /// <summary>
+    /// Raised when a segment completes, carrying its captured audio and metadata. An utterance
+    /// longer than <see cref="VadOptions.MaxSpeechLengthMs"/> is delivered as multiple consecutive
+    /// segments: each forced split raises this event followed immediately by another
+    /// <see cref="SpeechStarted"/> for the next segment, with <see cref="IsSpeechInProgress"/>
+    /// remaining true throughout.
+    /// </summary>
     event EventHandler<SpeechSegment>? SpeechCompleted;
 
     /// <summary>Gets whether an utterance is currently being captured.</summary>

@@ -28,13 +28,23 @@ public sealed record VadOptions
     /// <summary>Trailing silence, in ms, that marks the end of an utterance.</summary>
     public int EndOfUtteranceMs { get; init; } = 550;
 
-    /// <summary>Audio, in ms, kept before the detected start and prepended to the utterance.</summary>
+    /// <summary>
+    /// Audio, in ms, kept before the detected start and prepended to the utterance. Must be at
+    /// least long enough to cover one model inference window for the selected <see cref="ModelVersion"/>
+    /// and <see cref="SampleRate"/> (32ms for every currently supported combination); a smaller
+    /// value is rejected by <see cref="VadSpeechSegmenter"/>'s constructor rather than by
+    /// <see cref="Validate"/>, since the minimum depends on the model.
+    /// </summary>
     public int PreSpeechMs { get; init; } = 1200;
 
     /// <summary>Duration, in ms, of each frame passed to <see cref="IVadSpeechSegmenter.PushFrame"/>.</summary>
     public int MsPerFrame { get; init; } = 32;
 
-    /// <summary>Maximum utterance length, in ms, after which the segment is force-completed.</summary>
+    /// <summary>
+    /// Maximum segment length, in ms. An utterance that runs longer is force-split into a
+    /// completed segment plus a new one that keeps capturing immediately afterward, with no
+    /// gap and no re-included pre-speech padding — see <see cref="IVadSpeechSegmenter.SpeechCompleted"/>.
+    /// </summary>
     public int MaxSpeechLengthMs { get; init; } = 7_000;
 
     /// <summary>Validates the option values.</summary>

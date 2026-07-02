@@ -12,7 +12,7 @@ public static partial class Algos
         var bytes = new byte[floats.Length * 2];
         for (int i = 0; i < floats.Length; i++)
         {
-            short s = (short)(floats[i] * 32767f);
+            short s = (short)(Math.Clamp(floats[i], -1f, 1f) * 32767f);
             bytes[i * 2] = (byte)(s & 0xFF);
             bytes[i * 2 + 1] = (byte)((s >> 8) & 0xFF);
         }

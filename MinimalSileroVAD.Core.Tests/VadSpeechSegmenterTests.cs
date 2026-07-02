@@ -35,6 +35,46 @@ public class VadSpeechSegmenterTests
             () => new VadSpeechSegmenter(new VadOptions { SampleRate = 44100 }));
     }
 
+    [Theory]
+    [MemberData(nameof(SupportedConfigs))]
+    public void PreSpeechMsBelowWindowDuration_ThrowsInConstructor(ModelVersion model, int sampleRate)
+    {
+        // 1ms of pre-speech buffer can't hold the ~32ms inference window every supported
+        // model/sample-rate combination requires; the buffer would permanently starve the
+        // model of real audio and silently zero-pad every inference.
+        var options = new VadOptions
+        {
+            ModelVersion = model,
+            SampleRate = sampleRate,
+            MsPerFrame = 1,
+            PreSpeechMs = 1,
+        };
+
+        var ex = Assert.Throws<ArgumentException>(() => new VadSpeechSegmenter(options));
+        Assert.Contains("PreSpeechMs", ex.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(SupportedConfigs))]
+    public void PreSpeechMsCoveringWindowDuration_DoesNotThrow(ModelVersion model, int sampleRate)
+    {
+        int windowSamples = model == ModelVersion.V5
+            ? SileroModelV5.WindowSamples(sampleRate)
+            : SileroModelV4.RequiredSamples;
+        int windowMs = (int)Math.Ceiling(windowSamples * 1000.0 / sampleRate);
+
+        var options = new VadOptions
+        {
+            ModelVersion = model,
+            SampleRate = sampleRate,
+            MsPerFrame = windowMs,
+            PreSpeechMs = windowMs,
+        };
+
+        using var seg = new VadSpeechSegmenter(options);
+        Assert.False(seg.IsSpeechInProgress);
+    }
+
     [Fact]
     public void PushFrame_AfterDispose_Throws()
     {
