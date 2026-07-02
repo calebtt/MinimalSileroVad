@@ -24,7 +24,6 @@ public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
     private readonly MemoryStream _buf = new();
 
     private bool _inProgress;
-    private bool _justStarted;
     private bool _isDisposed;
     private long _streamSamples;
     private long _utteranceStartSample;
@@ -44,14 +43,31 @@ public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
 
     /// <summary>Creates a segmenter over the embedded Silero model selected by the supplied options.</summary>
     public VadSpeechSegmenter(VadOptions options)
+        : this(RequireValid(options), CreateModel(options))
+    {
+    }
+
+    /// <summary>Creates a segmenter over a caller-supplied model backend. Used by tests to inject a fake <see cref="ISileroModel"/>.</summary>
+    internal VadSpeechSegmenter(VadOptions options, ISileroModel model)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(model);
         options.Validate();
 
         _options = options;
         _sampleRate = options.SampleRate;
-        _model = CreateModel(options);
-        _bytesPerWindow = WindowSamples(options) * 2;
+        _model = model;
+
+        int windowSamples = WindowSamples(options);
+        _bytesPerWindow = windowSamples * 2;
+
+        int minPreSpeechMs = (int)Math.Ceiling(windowSamples * 1000.0 / options.SampleRate);
+        if (options.PreSpeechMs < minPreSpeechMs)
+            throw new ArgumentException(
+                $"PreSpeechMs ({options.PreSpeechMs}) must be at least {minPreSpeechMs}ms to cover one {options.ModelVersion} " +
+                $"inference window ({windowSamples} samples) at {options.SampleRate} Hz; a smaller value starves the model's " +
+                "input window and every inference silently runs on zero-padded audio.",
+                nameof(options));
 
         Log.Information("Silero VAD initialized: {Model} model, {SampleRate} Hz, threshold {Threshold}.",
             options.ModelVersion, _sampleRate, options.Threshold);
@@ -63,6 +79,13 @@ public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
         _startCounter = new VadFrameCounter(startFrames);
         _endCounter = new VadFrameCounter(endFrames);
         _preBuf = new VadStartFramesBuffer(preFrames);
+    }
+
+    private static VadOptions RequireValid(VadOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
+        return options;
     }
 
     /// <summary>Creates a segmenter with default options for the given model and sample rate.</summary>
@@ -90,32 +113,26 @@ public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
             _endCounter.CountNonTriggerFrame();
 
             bool start = _startCounter.ShouldActivate() && !_inProgress;
-            bool cont = _inProgress && !_justStarted;
+            bool cont = _inProgress && !start;
 
             if (start)
             {
                 _inProgress = true;
-                _justStarted = true;
                 _utterancePeakProb = prob;
                 foreach (var f in _preBuf.GetFrames())
                     _buf.Write(f);
                 _utteranceStartSample = _streamSamples - _buf.Length / 2;
                 SpeechStarted?.Invoke(this, EventArgs.Empty);
             }
-
-            if (cont)
+            else if (cont)
             {
                 _buf.Write(frame);
                 _utterancePeakProb = Math.Max(_utterancePeakProb, prob);
                 if (CurrentUtteranceMs >= _options.MaxSpeechLengthMs)
                 {
-                    Log.Warning("Max utterance length {Ms}ms reached; completing segment.", _options.MaxSpeechLengthMs);
-                    CompleteSegment();
+                    Log.Warning("Max utterance length {Ms}ms reached; splitting segment.", _options.MaxSpeechLengthMs);
+                    CompleteSegment(continuation: true);
                 }
-            }
-            else if (_justStarted)
-            {
-                _justStarted = false;
             }
         }
         else
@@ -142,7 +159,6 @@ public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
         _startCounter.Reset();
         _endCounter.Reset();
         _inProgress = false;
-        _justStarted = false;
         _streamSamples = 0;
         _utteranceStartSample = 0;
         _utterancePeakProb = 0;
@@ -184,7 +200,14 @@ public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
         return frame;
     }
 
-    private void CompleteSegment()
+    /// <summary>
+    /// Emits the buffered audio as a completed segment. When <paramref name="continuation"/> is
+    /// true (a <see cref="VadOptions.MaxSpeechLengthMs"/> forced split mid-utterance), capture
+    /// keeps running for the same utterance: state stays "in progress" and the next segment starts
+    /// immediately after this one with no pre-speech padding replayed, since that audio was already
+    /// emitted in the segment just completed.
+    /// </summary>
+    private void CompleteSegment(bool continuation = false)
     {
         byte[] pcm = _buf.ToArray();
         var segment = new SpeechSegment
@@ -195,8 +218,18 @@ public sealed class VadSpeechSegmenter : IVadSpeechSegmenter
             Pcm = pcm,
         };
 
-        _inProgress = false;
         _buf.SetLength(0);
+
+        if (continuation)
+        {
+            _utteranceStartSample = _streamSamples;
+            _utterancePeakProb = 0;
+            SpeechCompleted?.Invoke(this, segment);
+            SpeechStarted?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        _inProgress = false;
         SpeechCompleted?.Invoke(this, segment);
     }
 
@@ -279,51 +312,20 @@ internal class VadStartFramesBuffer
 internal class VadFrameCounter
 {
     private readonly int _framesUntilTrigger;
-    private readonly Queue<bool> _recentTriggers; // Sliding window: Recent frames only
-    private int _consecutiveTriggers; // Running consecutive count (resets on false)
+    private int _consecutiveTriggers;
 
     public VadFrameCounter(int framesUntilStart)
     {
         _framesUntilTrigger = framesUntilStart;
-        _recentTriggers = new Queue<bool>(); // Fixed-size via Enqueue/Dequeue
-        _consecutiveTriggers = 0;
     }
 
-    public void CountTriggerFrame()
-    {
-        _recentTriggers.Enqueue(true);
-        _consecutiveTriggers++;
+    public void CountTriggerFrame() => _consecutiveTriggers++;
 
-        // Auto-prune window to ~_framesUntilTrigger + buffer (prevents memory growth)
-        while (_recentTriggers.Count > _framesUntilTrigger + 5)
-        {
-            _recentTriggers.Dequeue();
-        }
-    }
+    /// <summary>Breaks the consecutive-trigger run.</summary>
+    public void CountNonTriggerFrame() => _consecutiveTriggers = 0;
 
-    public void CountNonTriggerFrame()
-    {
-        _recentTriggers.Enqueue(false);
-        _consecutiveTriggers = 0; // Reset consecutive on non-trigger
+    public bool ShouldActivate() => _consecutiveTriggers >= _framesUntilTrigger;
 
-        while (_recentTriggers.Count > _framesUntilTrigger + 5)
-        {
-            _recentTriggers.Dequeue();
-        }
-    }
-
-    public bool ShouldActivate()
-    {
-        // Activate if recent N frames are all true (sliding AND)
-        if (_recentTriggers.Count < _framesUntilTrigger) return false;
-
-        return _consecutiveTriggers >= _framesUntilTrigger;
-    }
-
-    /// <summary>Clears the sliding window and consecutive-trigger count.</summary>
-    public void Reset()
-    {
-        _recentTriggers.Clear();
-        _consecutiveTriggers = 0;
-    }
+    /// <summary>Clears the consecutive-trigger count.</summary>
+    public void Reset() => _consecutiveTriggers = 0;
 }

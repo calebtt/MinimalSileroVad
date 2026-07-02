@@ -10,7 +10,7 @@ internal static class OnnxSessionFactory
     {
         try
         {
-            var cudaOpts = new SessionOptions
+            using var cudaOpts = new SessionOptions
             {
                 GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
             };
@@ -22,7 +22,7 @@ internal static class OnnxSessionFactory
         catch (Exception ex)
         {
             Log.Warning(ex, "CUDA execution provider unavailable; falling back to CPU.");
-            var cpuOpts = new SessionOptions
+            using var cpuOpts = new SessionOptions
             {
                 GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
             };
