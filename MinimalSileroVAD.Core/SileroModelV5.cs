@@ -8,6 +8,11 @@ namespace MinimalSileroVAD.Core;
 /// Silero VAD inference using the bundled V5 ONNX model. V5 uses a single combined
 /// recurrent state tensor (<c>state</c>/<c>stateN</c>) and natively supports 8 kHz and 16 kHz audio.
 /// </summary>
+/// <remarks>
+/// Like the reference wrapper in silero-vad, each input is the window prefixed with the last
+/// <see cref="ContextSamples"/> samples of the previous input (zeros after a reset). Without
+/// that context the model still runs but reports much lower speech probabilities.
+/// </remarks>
 public class SileroModelV5 : ISileroModel
 {
     /// <summary>Samples per inference window at 16 kHz.</summary>
@@ -15,6 +20,12 @@ public class SileroModelV5 : ISileroModel
 
     /// <summary>Samples per inference window at 8 kHz.</summary>
     public const int Samples8k = 256;
+
+    /// <summary>Context samples carried between windows at 16 kHz.</summary>
+    public const int Context16k = 64;
+
+    /// <summary>Context samples carried between windows at 8 kHz.</summary>
+    public const int Context8k = 32;
 
     private const int StateLength = 2 * 1 * 128;
 
@@ -27,7 +38,9 @@ public class SileroModelV5 : ISileroModel
     private float _lastProbability;
 
     // Reused across calls; (re)built only when the window size or sample rate changes.
+    // Layout: [context | window]; the context is the tail of the previous input.
     private float[] _audioBuffer = Array.Empty<float>();
+    private float[] _context = Array.Empty<float>();
     private DenseTensor<float>? _inputTensor;
     private DenseTensor<long>? _srTensor;
     private NamedOnnxValue[]? _inputs;
@@ -61,6 +74,15 @@ public class SileroModelV5 : ISileroModel
         _ => throw new ArgumentException("Sample rate must be 8000 or 16000 Hz.", nameof(sampleRate)),
     };
 
+    /// <summary>Samples of the previous input carried into the next one for the given sample rate.</summary>
+    /// <exception cref="ArgumentException">The sample rate is not 8000 or 16000 Hz.</exception>
+    public static int ContextSamples(int sampleRate) => sampleRate switch
+    {
+        16000 => Context16k,
+        8000 => Context8k,
+        _ => throw new ArgumentException("Sample rate must be 8000 or 16000 Hz.", nameof(sampleRate)),
+    };
+
     /// <inheritdoc />
     public bool IsSpeech(ReadOnlySpan<byte> pcm16, int sampleRate)
     {
@@ -77,8 +99,10 @@ public class SileroModelV5 : ISileroModel
         {
             EnsureBuffers(windowSamples, sampleRate);
 
+            int contextSamples = _context.Length;
+            Array.Copy(_context, _audioBuffer, contextSamples);
             for (int i = 0; i < windowSamples; i++)
-                _audioBuffer[i] = BitConverter.ToInt16(window[(i * 2)..]) / 32768f;
+                _audioBuffer[contextSamples + i] = BitConverter.ToInt16(window[(i * 2)..]) / 32768f;
 
             using var result = _session.Run(_inputs!);
             float prob = result.First(r => r.Name == "output").AsTensor<float>()[0];
@@ -87,6 +111,9 @@ public class SileroModelV5 : ISileroModel
             var stateOut = result.First(r => r.Name == "stateN").AsTensor<float>();
             for (int i = 0; i < StateLength; i++)
                 _state[i] = stateOut.GetValue(i);
+
+            // The tail of this input is the next input's context.
+            Array.Copy(_audioBuffer, _audioBuffer.Length - contextSamples, _context, 0, contextSamples);
 
             _lastProbability = prob;
             return prob > _threshold;
@@ -100,18 +127,23 @@ public class SileroModelV5 : ISileroModel
     {
         bool rebuildInputs = _inputs is null;
 
-        if (_bufferedWindowSamples != windowSamples)
+        if (_bufferedSampleRate != sampleRate)
         {
-            _audioBuffer = new float[windowSamples];
-            _inputTensor = new DenseTensor<float>(_audioBuffer, new[] { 1, windowSamples });
-            _bufferedWindowSamples = windowSamples;
+            // A different rate is a different stream: start from zero context and state.
+            _srTensor = new DenseTensor<long>(new[] { (long)sampleRate }, new[] { 1 });
+            _context = new float[ContextSamples(sampleRate)];
+            if (_bufferedSampleRate != -1)
+                Array.Clear(_state);
+            _bufferedSampleRate = sampleRate;
             rebuildInputs = true;
         }
 
-        if (_bufferedSampleRate != sampleRate)
+        int inputSamples = _context.Length + windowSamples;
+        if (_bufferedWindowSamples != windowSamples || _audioBuffer.Length != inputSamples)
         {
-            _srTensor = new DenseTensor<long>(new[] { (long)sampleRate }, new[] { 1 });
-            _bufferedSampleRate = sampleRate;
+            _audioBuffer = new float[inputSamples];
+            _inputTensor = new DenseTensor<float>(_audioBuffer, new[] { 1, inputSamples });
+            _bufferedWindowSamples = windowSamples;
             rebuildInputs = true;
         }
 
@@ -143,7 +175,10 @@ public class SileroModelV5 : ISileroModel
     public void ResetState()
     {
         lock (_inferenceLock)
+        {
             Array.Clear(_state);
+            Array.Clear(_context);
+        }
     }
 
     /// <inheritdoc />

@@ -40,6 +40,22 @@ internal static class TestAudio
 
     public static byte[] Silence(int sampleCount) => Pcm16(sampleCount, _ => 0);
 
+    /// <summary>The PCM16 data chunk of a fixture WAV in Fixtures/.</summary>
+    public static byte[] Fixture(string name)
+    {
+        byte[] wav = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
+        int pos = 12;
+        while (pos + 8 <= wav.Length)
+        {
+            string id = System.Text.Encoding.ASCII.GetString(wav, pos, 4);
+            int size = BitConverter.ToInt32(wav, pos + 4);
+            if (id == "data")
+                return wav.AsSpan(pos + 8, size).ToArray();
+            pos += 8 + size + (size & 1);
+        }
+        throw new InvalidDataException($"{name} has no data chunk");
+    }
+
     public static byte[] Tone(int sampleCount, double freqHz, short amplitude = 8000, int sampleRate = 16000) =>
         Pcm16(sampleCount, i => (short)(amplitude * Math.Sin(2 * Math.PI * freqHz * i / sampleRate)));
 }

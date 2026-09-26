@@ -19,4 +19,8 @@
     <ProjectReference Include="..\MinimalSileroVAD.Core\MinimalSileroVAD.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures\*.wav" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
